@@ -1,0 +1,18 @@
+# Core
+claude-agent-sdk
+anthropic
+fastapi
+uvicorn
+pydantic
+python-dotenv
+httpx
+
+# Stores
+redis
+psycopg[binary]
+
+# Dev / test
+pytest
+pytest-asyncio
+ruff
+mypy

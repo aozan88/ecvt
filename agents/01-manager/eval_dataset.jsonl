@@ -1,0 +1,10 @@
+{"input": "Test the OZFW API for edge cases", "expected_intent": "FULL_PIPELINE", "expected_pipeline": ["domain-intelligence", "scenario-generator", "execution", "evaluation"]}
+{"input": "Why did v1.3 fail the timestamp scenarios?", "expected_intent": "COMPARE", "expected_pipeline": ["regression", "domain-intelligence"]}
+{"input": "What does this payroll system do?", "expected_intent": "UNDERSTAND", "expected_pipeline": ["domain-intelligence"]}
+{"input": "Generate stress test scenarios for the login endpoint", "expected_intent": "GENERATE", "expected_pipeline": ["scenario-generator"]}
+{"input": "Does this meet the acceptance criteria I gave you?", "expected_intent": "VALIDATE_AC", "expected_pipeline": ["acceptance"]}
+{"input": "Run the scenario dataset against staging", "expected_intent": "RUN", "expected_pipeline": ["execution"]}
+{"input": "Score these responses for correctness", "expected_intent": "SCORE", "expected_pipeline": ["evaluation"]}
+{"input": "Give me a business summary report of the last run", "expected_intent": "REPORT", "expected_pipeline": ["reporting"]}
+{"input": "Compare accuracy between v1.2 and v1.3", "expected_intent": "COMPARE", "expected_pipeline": ["regression"]}
+{"input": "Validate my new REST service end to end", "expected_intent": "FULL_PIPELINE", "expected_pipeline": ["domain-intelligence", "scenario-generator", "execution", "evaluation"]}

@@ -1,0 +1,7 @@
+{
+  "_comment": "DRAFT schema stub for domain-intelligence. Iterate in Project 02.",
+  "domain-intelligence_output": {
+    "type": "object",
+    "properties": {}
+  }
+}

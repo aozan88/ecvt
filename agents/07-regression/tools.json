@@ -1,0 +1,7 @@
+{
+  "_comment": "DRAFT schema stub for regression. Iterate in Project 07.",
+  "regression_output": {
+    "type": "object",
+    "properties": {}
+  }
+}

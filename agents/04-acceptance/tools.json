@@ -1,0 +1,7 @@
+{
+  "_comment": "DRAFT schema stub for acceptance. Iterate in Project 04.",
+  "acceptance_output": {
+    "type": "object",
+    "properties": {}
+  }
+}

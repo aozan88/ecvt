@@ -1,0 +1,7 @@
+{
+  "_comment": "DRAFT schema stub for scenario-generator. Iterate in Project 03.",
+  "scenario-generator_output": {
+    "type": "object",
+    "properties": {}
+  }
+}

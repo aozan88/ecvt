@@ -1,0 +1,7 @@
+{
+  "_comment": "DRAFT schema stub for execution. Iterate in Project 05.",
+  "execution_output": {
+    "type": "object",
+    "properties": {}
+  }
+}

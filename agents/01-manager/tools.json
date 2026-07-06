@@ -1,0 +1,25 @@
+{
+  "_comment": "DRAFT schema stub. Tool stubs for 7 subagents (input/output JSON shapes). Iterate in Project 01.",
+  "manager_output": {
+    "type": "object",
+    "required": ["intent", "pipeline", "results", "summary"],
+    "properties": {
+      "intent": {
+        "type": "string",
+        "enum": ["UNDERSTAND", "GENERATE", "VALIDATE_AC", "RUN", "SCORE", "COMPARE", "REPORT", "FULL_PIPELINE"]
+      },
+      "pipeline": { "type": "array", "items": { "type": "string" } },
+      "results": { "type": "object" },
+      "summary": { "type": "string" }
+    }
+  },
+  "subagents": {
+    "domain-intelligence": { "input": {}, "output": {} },
+    "scenario-generator": { "input": {}, "output": {} },
+    "acceptance": { "input": {}, "output": {} },
+    "execution": { "input": {}, "output": {} },
+    "evaluation": { "input": {}, "output": {} },
+    "regression": { "input": {}, "output": {} },
+    "reporting": { "input": {}, "output": {} }
+  }
+}
