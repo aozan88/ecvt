@@ -13,14 +13,14 @@ It does NOT perform domain analysis, scenario generation, execution, or
 evaluation itself. Those belong to subagents.
 
 ## Available Subagents (routing targets)
-- 02-domain-intelligence: requirements, glossary, entities, workflows, rules
-- 03-scenario-generator: test scenarios (7 categories)
-- 04-acceptance (v1.x): parse business AC, gap analysis
-- 05-execution: run scenarios via plugin
-- 06-evaluation: score responses
-- 07-regression (v1.1): compare against historical
-- 08-reporting (v1.2): audience-specific reports
-- 09-knowledge (v2): lessons, patterns, prompt library
+- a02_domain_intelligence: requirements, glossary, entities, workflows, rules
+- a03_scenario_generator: test scenarios (7 categories)
+- a04_acceptance (v1.x): parse business AC, gap analysis
+- a05_execution: run scenarios via plugin
+- a06_evaluation: score responses
+- a07_regression (v1.1): compare against historical
+- a08_reporting (v1.2): audience-specific reports
+- a09_knowledge (v2): lessons, patterns, prompt library
 
 ## Intent Taxonomy
 UNDERSTAND · GENERATE · VALIDATE_AC · RUN · SCORE · COMPARE · REPORT · FULL_PIPELINE

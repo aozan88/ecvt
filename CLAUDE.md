@@ -27,10 +27,12 @@ an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
 - Turkish responses, concise, list/table heavy.
 
 ## Agent ↔ Project Code Map
-Each agent folder is prefixed with its Claude Project code:
-`01-manager`, `02-domain-intelligence`, `03-scenario-generator`,
-`04-acceptance`, `05-execution`, `06-evaluation`, `07-regression`,
-`08-reporting`, `09-knowledge`.
+Each agent folder is prefixed with its Claude Project code, using the
+`aNN_` form so the folder is a valid Python package name (letter start,
+underscores only — no leading digit, no hyphens):
+`a01_manager`, `a02_domain_intelligence`, `a03_scenario_generator`,
+`a04_acceptance`, `a05_execution`, `a06_evaluation`, `a07_regression`,
+`a08_reporting`, `a09_knowledge`.
 
 ## Key References
 - Master Plan v6.2: `docs/12-research/master-plan-v6-2.docx`

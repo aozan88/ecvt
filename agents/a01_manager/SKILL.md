@@ -50,3 +50,10 @@ Always return JSON matching `tools.json::manager_output` schema:
   "summary": "2-3 sentence executive summary"
 }
 ```
+
+## TODO (finalize H3 Mon, 13 Jul)
+
+- [ ] Tighten intent-classification rules with few-shot examples
+- [ ] Define exact context object passed between subagents
+- [ ] Confirm output schema against `tools.json`
+- [ ] Validate against all 10 cases in `eval_dataset.jsonl`
