@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 def main() -> int:
     load_dotenv()  # reads .env from repo root
     key = os.getenv("ANTHROPIC_API_KEY", "")
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 
     if not key or key.startswith("sk-ant-xxxxx"):
         print("ANTHROPIC_API_KEY not set (still placeholder).")

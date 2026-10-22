@@ -1,18 +1,7 @@
-# Core
 claude-agent-sdk
 anthropic
 fastapi
-uvicorn
-pydantic
-python-dotenv
+uvicorn[standard]
 httpx
-
-# Stores
-redis
-psycopg[binary]
-
-# Dev / test
 pytest
-pytest-asyncio
-ruff
-mypy
+pyyaml

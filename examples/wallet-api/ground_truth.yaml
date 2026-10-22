@@ -1,0 +1,33 @@
+# ECVT demo target — ground truth for deliberately injected bugs.
+# M2 "catch rate X/10" is measured against this file. DO NOT FIX the app.
+bugs:
+  - {id: GT-01, endpoint: "POST /accounts; POST /transfers", category: numeric,
+     description: "Balances stored as float, not Decimal",
+     expected: "exact decimal money arithmetic", actual: "float rounding errors accumulate"}
+  - {id: GT-02, endpoint: "POST /transfers", category: negative-validation,
+     description: "amount not validated > 0",
+     expected: "negative/zero rejected (422)", actual: "negative amount reverses transfer"}
+  - {id: GT-03, endpoint: "POST /transfers", category: boundary,
+     description: "no overdraft / sufficient-funds check",
+     expected: "transfer above balance rejected", actual: "source balance goes negative"}
+  - {id: GT-04, endpoint: "POST /transfers", category: security-authz,
+     description: "no ownership/auth check on source",
+     expected: "caller moves only own funds", actual: "anyone transfers from any account"}
+  - {id: GT-05, endpoint: "POST /transfers", category: adversarial-idempotency,
+     description: "no idempotency key",
+     expected: "replayed request applied once", actual: "duplicate submission double-charges"}
+  - {id: GT-06, endpoint: "POST /transfers", category: stress-race,
+     description: "read-modify-write without locking",
+     expected: "concurrent transfers serialized", actual: "lost updates / overdraft race"}
+  - {id: GT-07, endpoint: "GET /balance; POST /transfers", category: error-handling,
+     description: "missing account raises KeyError",
+     expected: "404 Not Found", actual: "500 Internal Server Error"}
+  - {id: GT-08, endpoint: "POST /transfers", category: edge,
+     description: "self-transfer not blocked",
+     expected: "from == to rejected/no-op", actual: "allowed; corrupts under races"}
+  - {id: GT-09, endpoint: "POST /transfers", category: boundary,
+     description: "exact-balance transfer leaves float residue",
+     expected: "full-balance transfer zeroes account", actual: "tiny float remainder lingers"}
+  - {id: GT-10, endpoint: "POST /accounts; POST /transfers", category: validation-stress,
+     description: "no upper bound/type guard on amount",
+     expected: "absurd/huge amounts rejected", actual: "accepts arbitrarily large values"}
