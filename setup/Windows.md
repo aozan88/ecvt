@@ -1,11 +1,26 @@
 # Setup — Windows
 
-> STUB — max 100-150 lines. PowerShell, choco/scoop installs, WSL2 recommendation, Windows-specific issues.
+> Skeleton (≤150 lines). Fill TODOs, then delete this note.
 
-## TODO
+## Prerequisites
+- Windows 10/11, PowerShell 7+
+- **Recommended:** enable WSL2 and follow `WSL.md` for the Linux-side toolchain.
 
-- [ ] Install steps: PowerShell, choco/scoop, WSL2
-- [ ] Python + git + Docker Desktop
-- [ ] Windows-specific issues
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Install (PowerShell, via winget or scoop)
+```powershell
+winget install --id Git.Git -e
+winget install --id GitHub.cli -e
+winget install --id Python.Python.3.12 -e
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id Docker.DockerDesktop -e
+```
+
+## Windows-specific notes
+- Docker Desktop must use the **WSL2 backend** (Settings → General).
+- Line endings: set `git config --global core.autocrlf input`.
+
+## Common issues
+<!-- TODO: PATH not updated after install; Docker WSL integration off; long-path errors -->
+
+## Next
+→ `Claude.md` · `Docker.md` · `n8n.md` · `Environment.md`

@@ -1,11 +1,25 @@
-# Setup — MCP
+# Setup — MCP Servers
 
-> STUB — max 100-150 lines. MCP server install (Brave, GitHub, Postgres), config files, custom MCP dev.
+> Skeleton (≤150 lines).
 
-## TODO
+## Ready-made servers (npm)
+```bash
+# examples — TODO confirm exact package names/versions
+npx -y @modelcontextprotocol/server-brave-search
+npx -y @modelcontextprotocol/server-github
+npx -y @modelcontextprotocol/server-slack
+```
+| Server | Used by |
+|---|---|
+| brave-search | Domain Intelligence, Scenario Generator |
+| github | Execution, Knowledge |
+| slack | Manager, Reporting |
 
-- [ ] MCP server install (Brave, GitHub, Postgres)
-- [ ] Config file locations
-- [ ] Custom MCP dev pointer (mcp-servers/)
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Config
+<!-- TODO: where server configs live; keys from .env (BRAVE_API_KEY, GITHUB_PAT, SLACK_BOT_TOKEN) -->
+
+## Custom MCP (ecvt-eval)
+<!-- TODO: scaffold under mcp-servers/ecvt-eval/; score_response(input, output, criteria) -> 0-1 -->
+
+## Next
+→ `Environment.md`

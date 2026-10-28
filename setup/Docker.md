@@ -1,11 +1,22 @@
-# Setup — Docker
+# Setup — Docker Desktop
 
-> STUB — max 100-150 lines. Docker Desktop install, docker-compose basics, volume management.
+> Skeleton (≤150 lines). Install BEFORE n8n.
 
-## TODO
+## Install
+- Windows: `winget install Docker.DockerDesktop` (WSL2 backend).
+- macOS: `brew install --cask docker`.
+- Verify: `docker --version && docker compose version`.
 
-- [ ] Docker Desktop install
-- [ ] docker-compose basics
-- [ ] Volume management
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Basic commands
+```bash
+docker compose up -d        # start services
+docker compose ps           # status
+docker compose logs -f n8n  # follow logs
+docker compose down         # stop
+```
+
+## Volumes
+<!-- TODO: where n8n_data lives; backup/restore note -->
+
+## Next
+→ `n8n.md`
