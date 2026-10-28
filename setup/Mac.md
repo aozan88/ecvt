@@ -1,11 +1,20 @@
-# Setup — Mac
+# Setup — macOS
 
-> STUB — max 100-150 lines. Homebrew installs, ARM vs Intel, Xcode CLT, macOS paths.
+> Skeleton (≤150 lines).
 
-## TODO
+## Prerequisites
+- macOS 13+; note **Apple Silicon (ARM)** vs **Intel** where it matters.
+- Xcode Command Line Tools: `xcode-select --install`
 
-- [ ] Homebrew installs
-- [ ] ARM vs Intel notes, Xcode CLT
-- [ ] macOS-specific paths
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Install (Homebrew)
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install git gh python@3.12 node
+brew install --cask docker
+```
+
+## Apple Silicon notes
+<!-- TODO: rosetta for x86 images; platform flags for docker; python arch mismatches -->
+
+## Next
+→ `Claude.md` · `Docker.md` · `n8n.md` · `Environment.md`

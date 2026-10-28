@@ -1,11 +1,25 @@
-# Setup — Environment
+# Setup — Environment & Secrets
 
-> STUB — max 100-150 lines. .env template, API key security, secret management, multi-PC sync.
+> Skeleton (≤150 lines).
 
-## TODO
+## .env (never commit — it's in .gitignore)
+Copy `.env.example` → `.env` and fill:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+N8N_URL=http://localhost:5678
+N8N_API_KEY=
+BRAVE_API_KEY=
+GITHUB_PAT=ghp_...
+SLACK_BOT_TOKEN=xoxb-...
+```
 
-- [ ] .env template (copy from .env.example)
-- [ ] API key security + secret management
-- [ ] Multi-PC sync
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Secret hygiene
+- Local: `.env` only. CI: GitHub Secrets.
+- Rotate `ANTHROPIC_API_KEY` from the Console if exposed.
+- Consider a `detect-secrets` pre-commit hook.
+
+## Multi-PC sync
+<!-- TODO: how you keep work-PC vs home-PC in sync (Codespaces vs local) -->
+
+## Next
+→ `Troubleshooting.md`

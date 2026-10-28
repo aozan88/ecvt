@@ -6,9 +6,10 @@ You are working in the ECVT (Edge Case Validation Toolkit) repository —
 an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
 
 ## Project Status
-- Phase: H1 (Cleanup / Setup)
-- Version: v0.1 (pre-MVP)
-- Frozen plan: Master Plan v6.2 FINAL + Mapping v3 FINAL
+- Plan: Master Plan v7 (M0–M3, 22 Oct – 13 Dec 2026) + Mapping v3 (architecture)
+- Current milestone and status: `docs/10-roadmap/README.md`
+- Build order (v7): Scenario → Execution → Evaluation (M1), then Domain
+  Intelligence + Manager (M2). Runtime pipeline order (rule 4) is unchanged.
 
 ## Rules (STRICT)
 1. Never revise the master plan. Write ADRs in `docs/11-decisions/` instead.
@@ -21,7 +22,7 @@ an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
    frameworks — ECVT is built from scratch on Claude Agent SDK.
 
 ## Coach Behavior
-- Match Master Plan v6.2 for weekly/daily targets.
+- Match Master Plan v7 / Günlük Plan v7 for milestone and daily (Dnn) targets.
 - Silently flag deviations from planned DoDs.
 - Suggest next action but let the user decide.
 - Turkish responses, concise, list/table heavy.
@@ -35,9 +36,13 @@ underscores only — no leading digit, no hyphens):
 `a08_reporting`, `a09_knowledge`.
 
 ## Key References
-- Master Plan v6.2 + Mapping v3: Claude Project knowledge / Drive (source of
-  truth). Local copies may sit in `docs/12-research/*.docx`, but `.docx` files
-  are gitignored and not part of a fresh clone.
+- Source of truth lives in Drive (ECVT folder), not in the repo:
+  - ECVT Günlük Plan v7 (status, Dnn days):
+    https://docs.google.com/document/d/1W9ePt7yobB81Q7-URFsgEBhiUt78YI5dtjr0LHwQJeI
+  - ECVT Master Plan v7 (scope, gates):
+    https://docs.google.com/document/d/16LzWFgGmDCpoiHoMffCN8W10grFFxksNU_42GARoC2E
+  - Mapping v3 (architecture). Master Plan v6.2 is archive only.
+  - `.docx` files are gitignored; local copies in `docs/12-research/` are optional.
 - Roadmap / milestone status: `docs/10-roadmap/README.md`
 - Conventions: `docs/conventions.md`
 

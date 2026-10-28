@@ -1,10 +1,17 @@
-# Setup — Cursor
+# Setup — Cursor / VS Code
 
-> STUB — max 100-150 lines. Cursor download, settings, Cursor + Claude Code extension.
+> Skeleton (≤150 lines).
 
-## TODO
+## Option A — Cursor
+- Download: https://cursor.com  (Pro optional)
+- Sign in; set default model preferences.
 
-- [ ] Cursor download + settings
-- [ ] Claude Code extension setup
-- [ ] Keep within 100-150 lines
-- [ ] Remove the STUB banner when this doc is complete.
+## Option B — VS Code + Claude Code
+- Install VS Code, then the Claude Code extension.
+- Authenticate with your Claude Pro account.
+
+## Recommended settings
+<!-- TODO: format-on-save, Ruff/ESLint integration, .editorconfig -->
+
+## Next
+→ `Claude.md`
