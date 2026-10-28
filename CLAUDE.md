@@ -35,8 +35,10 @@ underscores only — no leading digit, no hyphens):
 `a08_reporting`, `a09_knowledge`.
 
 ## Key References
-- Master Plan v6.2: `docs/12-research/master-plan-v6-2.docx`
-- Mapping v3: `docs/12-research/ecvt-mapping-v3.docx`
+- Master Plan v6.2 + Mapping v3: Claude Project knowledge / Drive (source of
+  truth). Local copies may sit in `docs/12-research/*.docx`, but `.docx` files
+  are gitignored and not part of a fresh clone.
+- Roadmap / milestone status: `docs/10-roadmap/README.md`
 - Conventions: `docs/conventions.md`
 
 ## What NOT to do

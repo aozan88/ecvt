@@ -32,3 +32,6 @@ build/
 
 # Claude Code local
 .claude/settings.local.json
+
+# Binaries (sources live in Drive / Claude Project knowledge)
+*.docx
