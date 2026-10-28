@@ -1,0 +1,57 @@
+# Gate G0 — M0 Setup + demo target (Master Plan v7)
+# Run: python scripts/gate_check.py M0
+# Each check: cmd (bash, repo root) + expectations. All must PASS to close M0.
+gate: G0
+milestone: M0
+checks:
+  - id: G0-1
+    desc: hello_agent.py runs and prints a reply
+    cmd: python scripts/hello_agent.py
+    requires_env: [ANTHROPIC_API_KEY]
+    expect_stdout: "hello OK"
+    timeout: 90
+
+  - id: G0-2
+    desc: wallet-api up via uvicorn; /openapi.json 200 and matches snapshot
+    cmd: |
+      uvicorn app:app --app-dir examples/wallet-api --port 8765 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 30); do curl -sf localhost:8765/openapi.json -o /dev/null && break; sleep 0.3; done
+      curl -sf localhost:8765/openapi.json | python -c "import json,sys; live=json.load(sys.stdin); snap=json.load(open('examples/wallet-api/openapi.json')); print('MATCH' if live==snap else 'DRIFT')"
+    expect_stdout: MATCH
+
+  - id: G0-3
+    desc: pytest examples/wallet-api green (happy path)
+    cmd: python -m pytest -q examples/wallet-api
+
+  - id: G0-4
+    desc: ground_truth.yaml has 10 records with id, category, endpoint, expected, actual
+    cmd: |
+      python -c "
+      import yaml
+      bugs = yaml.safe_load(open('examples/wallet-api/ground_truth.yaml'))['bugs']
+      req = {'id', 'category', 'endpoint', 'expected', 'actual'}
+      bad = [b.get('id') for b in bugs if not req <= b.keys()]
+      assert len(bugs) == 10 and not bad, (len(bugs), bad)
+      print('GT OK', len(bugs))
+      "
+    expect_stdout: GT OK 10
+
+  - id: G0-5
+    desc: git status clean; no tracked .docx or node_modules
+    cmd: |
+      test -z "$(git status --porcelain)" || { git status --porcelain; exit 1; }
+      ! git ls-files | grep -E '\.docx$|(^|/)node_modules/'
+
+  - id: G0-6
+    desc: ADR 0005-0008 present in docs/11-decisions, each <= 1 page (40 lines)
+    cmd: |
+      for n in 0005 0006 0007 0008; do
+        f=$(ls docs/11-decisions/$n-*.md 2>/dev/null) || { echo "missing $n"; exit 1; }
+        l=$(wc -l < "$f"); [ "$l" -le 40 ] || { echo "$f $l lines"; exit 1; }
+      done; echo ADR OK
+
+  - id: G0-7
+    desc: tag v0.0.1 exists
+    cmd: git tag -l v0.0.1
+    expect_stdout: v0.0.1
