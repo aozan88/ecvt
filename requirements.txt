@@ -1,11 +1,4 @@
-claude-agent-sdk
-anthropic>=2
-fastapi
-uvicorn[standard]
-httpx
-pydantic
-python-dotenv
-pytest
-pytest-asyncio
-pyyaml
-ruff
+# The dependency list lives in pyproject.toml; this file installs it, so the
+# two cannot drift apart. `-e` also puts the `ecvt` console script on PATH,
+# which `pip install -r` alone never did.
+-e .[dev]

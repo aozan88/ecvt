@@ -12,9 +12,9 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 ## Status (export 2026-11-02 · D11)
 
 - **M0 closed.** G0 PASS, tag `v0.0.1`.
-- **M1 nearly closed.** T1–T8 done; T9 open on two G1 items: pytest green
-  (G1-5) and tag `v0.3.0` (G1-8). The three agents' evals read a03 90% /
-  a05 100% / a06 100% against the 80% bar; catch rate 8/10.
+- **M1 nearly closed.** T1–T8 done; T9 open on the tag `v0.3.0` (G1-8).
+  The three agents' evals read a03 90% / a05 100% / a06 100% against the 80%
+  bar; catch rate 8/10.
 - **Ahead of plan** on M1 (T9 was dated D15 · 6 Nov) because the code was
   written for Ozan rather than by him, and the prompt-iteration days
   (D04–D06, D09, D12) were spent on the eval harness instead.
@@ -74,7 +74,7 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 - [x] `ecvt run --target examples/wallet-api` finishes with one command (exit 0)
 - [x] `scenarios.jsonl` covers all 7 categories; one execution and one score per scenario
 - [x] Each of the three agents' eval datasets passes ≥ 80% — a03 90% · a05 100% · a06 100%
-- [ ] pytest green (unit + integration) — **G1-5 open:** 3 failed / 44 errors in the Codespace, 197 green in CI and locally; under diagnosis
+- [x] pytest green (unit + integration) — 197 tests; the Codespace's 44 errors were a missing `pytest-asyncio`, now declared in `pyproject.toml` and guarded in `conftest.py`
 - [x] Report states bugs caught vs ground truth (X/10); measured, no target — 8/10
 - [x] Tokens and cost logged per run
 - [ ] `gate_check.py M1` PASS + tag v0.3.0

@@ -37,6 +37,10 @@ M1 — the Scenario → Execution → Evaluation chain, runnable in one command.
 - Generator left every scenario at `concurrency: 1, repeat: 1`, which put
   races and replays out of reach; the wire schema now requires both fields
   and the validator rejects a set that exercises neither.
+- `pyproject.toml` declared no dependencies, so `pip install -e .` produced
+  an environment where every async test errored. Runtime and dev
+  dependencies are declared, `requirements.txt` installs them, and
+  `conftest.py` names the cause when the async plugin is absent.
 
 ## [0.0.1] - 2026-10-23
 ### Added

@@ -12,6 +12,23 @@ import pytest
 WALLET_APP_PATH = Path(__file__).resolve().parent.parent / "examples" / "wallet-api" / "app.py"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Stop early when the async plugin is missing.
+
+    `asyncio_mode = "auto"` means every `async def test_` needs
+    pytest-asyncio. Without it they do not fail, they error during setup —
+    44 of them at once in a Codespace installed with `pip install -e .`,
+    which until now declared no dependencies. The wall of tracebacks says
+    nothing about the cause, so say it here in one line instead.
+    """
+    if importlib.util.find_spec("pytest_asyncio") is None:  # pragma: no cover
+        raise pytest.UsageError(
+            "pytest-asyncio is not installed, so every async test would error "
+            "before running. Install the test dependencies: "
+            "pip install -r requirements.txt  (or: pip install -e '.[dev]')"
+        )
+
+
 def _load_wallet_module() -> Any:
     """Import examples/wallet-api/app.py, which is not an installed package."""
     spec = importlib.util.spec_from_file_location("ecvt_demo_wallet_api", WALLET_APP_PATH)
