@@ -93,6 +93,17 @@ def _make_validator(require_all_categories: bool = True) -> Any:
                     "every category needs at least one scenario; missing: "
                     + ", ".join(missing)
                 )
+        # Asking for this in the prompt was not enough: every scenario came
+        # back at 1. Raising it here puts the requirement in the retry loop,
+        # where the model is shown what it missed and sends a corrected set.
+        unused = draft.missing_execution_modes()
+        if unused:
+            raise ValueError(
+                "the set never uses " + " or ".join(f"`{u}` above 1" for u in unused) + "; "
+                "a race and a replay cannot be observed from one sequential request. "
+                "Raise `concurrency` on a scenario that probes a race and `repeat` on "
+                "one that probes a duplicated write."
+            )
         return draft
 
     return validate
