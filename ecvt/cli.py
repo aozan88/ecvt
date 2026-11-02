@@ -127,7 +127,10 @@ def run_chain(args: argparse.Namespace) -> int:
         "base_url": args.base_url,
         "spec_title": spec_title,
         "finished_at": datetime.now(UTC).isoformat(),
-        "elapsed_s": round(elapsed, 1),
+        # Millisecond precision on purpose: run.json is machine-read for the
+        # trend table, and a fast run rounded to 0.0s loses the measurement.
+        # The printed line below rounds for humans instead.
+        "elapsed_s": round(elapsed, 3),
         "model": args.model,
         "judge_enabled": not args.no_judge,
         "scenarios": len(scenarios),
