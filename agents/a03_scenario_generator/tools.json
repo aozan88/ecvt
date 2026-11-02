@@ -1,7 +1,257 @@
-{
-  "_comment": "DRAFT schema stub for scenario-generator. Iterate in Project 03.",
-  "scenario-generator_output": {
-    "type": "object",
-    "properties": {}
+[
+  {
+    "name": "scenario_generator_output",
+    "description": "Return the generated edge-case scenarios. Use this tool for every response: it is the only way to deliver scenarios.",
+    "input_schema": {
+      "$defs": {
+        "Expectation": {
+          "description": "What a correct system would do — never what the buggy target does.",
+          "properties": {
+            "expected_status": {
+              "description": "HTTP status codes a correct implementation may return for the action.",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1,
+              "title": "Expected Status",
+              "type": "array"
+            },
+            "expected_behavior": {
+              "description": "One or two sentences on correct behaviour, in terms a reviewer can check against the recorded response. Used by the LLM judge.",
+              "title": "Expected Behavior",
+              "type": "string"
+            },
+            "invariants": {
+              "description": "Checkable statements about state after the action, e.g. 'sum of both balances is unchanged'. Verified against `probes` output.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Invariants",
+              "type": "array"
+            },
+            "probes": {
+              "description": "Read-only calls run after the action to observe resulting state.",
+              "items": {
+                "$ref": "#/$defs/HttpStep"
+              },
+              "title": "Probes",
+              "type": "array"
+            }
+          },
+          "required": [
+            "expected_status",
+            "expected_behavior"
+          ],
+          "title": "Expectation",
+          "type": "object"
+        },
+        "HttpMethod": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
+          "title": "HttpMethod",
+          "type": "string"
+        },
+        "HttpStep": {
+          "description": "One HTTP call.\n\n`path` and string values inside `body` / `query` may contain `{name}`\nplaceholders, resolved by Execution from earlier steps' `save` captures.",
+          "properties": {
+            "name": {
+              "description": "Short snake_case label, unique within the scenario.",
+              "title": "Name",
+              "type": "string"
+            },
+            "method": {
+              "$ref": "#/$defs/HttpMethod"
+            },
+            "path": {
+              "description": "Path beginning with '/', e.g. /accounts/{src_id}/balance",
+              "title": "Path",
+              "type": "string"
+            },
+            "body": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "JSON request body.",
+              "title": "Body"
+            },
+            "query": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Query string parameters.",
+              "title": "Query"
+            },
+            "headers": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Extra request headers.",
+              "title": "Headers"
+            },
+            "save": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Capture values from this step's JSON response for later steps: {\"src_id\": \"id\"} reads the response field `id` and binds it to {src_id}. Dotted paths index nested objects, e.g. 'data.account.id'.",
+              "title": "Save"
+            }
+          },
+          "required": [
+            "name",
+            "method",
+            "path"
+          ],
+          "title": "HttpStep",
+          "type": "object"
+        },
+        "Scenario": {
+          "properties": {
+            "id": {
+              "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "description": "One short line naming what is probed.",
+              "title": "Title",
+              "type": "string"
+            },
+            "category": {
+              "$ref": "#/$defs/ScenarioCategory"
+            },
+            "severity": {
+              "$ref": "#/$defs/Severity",
+              "default": "medium"
+            },
+            "rationale": {
+              "description": "Why this is worth testing — the failure mode it would expose.",
+              "title": "Rationale",
+              "type": "string"
+            },
+            "setup": {
+              "description": "Steps that build prerequisite state.",
+              "items": {
+                "$ref": "#/$defs/HttpStep"
+              },
+              "title": "Setup",
+              "type": "array"
+            },
+            "action": {
+              "$ref": "#/$defs/HttpStep",
+              "description": "The single step under test."
+            },
+            "expectation": {
+              "$ref": "#/$defs/Expectation"
+            },
+            "repeat": {
+              "default": 1,
+              "description": "Send the action N times (idempotency / replay).",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Repeat",
+              "type": "integer"
+            },
+            "concurrency": {
+              "default": 1,
+              "description": "Send the action N times in parallel (race).",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Concurrency",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "category",
+            "rationale",
+            "action",
+            "expectation"
+          ],
+          "title": "Scenario",
+          "type": "object"
+        },
+        "ScenarioCategory": {
+          "description": "The 7 QE categories every ScenarioSet must cover (Master Plan v7).",
+          "enum": [
+            "happy",
+            "edge",
+            "stress",
+            "security",
+            "negative",
+            "adversarial",
+            "persona"
+          ],
+          "title": "ScenarioCategory",
+          "type": "string"
+        },
+        "Severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "The generator's wire format — just the scenarios.\n\nThis is what the model fills in via the forced tool call; run metadata\n(target, model, timestamp) is attached by code afterwards, so the model\ncannot get it wrong. `extra=\"forbid\"` turns silent field drift into a\nvalidation error the retry can act on.",
+      "properties": {
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "title": "Scenarios",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scenarios"
+      ],
+      "type": "object"
+    }
   }
-}
+]

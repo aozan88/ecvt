@@ -1,0 +1,27 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Single GET fixture", "version": "0.1.0" },
+  "paths": {
+    "/status/{node_id}": {
+      "get": {
+        "summary": "read_status",
+        "operationId": "read_status",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "verbose",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean", "default": false }
+          }
+        ],
+        "responses": { "200": { "description": "OK" }, "422": { "description": "Invalid" } }
+      }
+    }
+  }
+}

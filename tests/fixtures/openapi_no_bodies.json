@@ -1,0 +1,39 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "No request bodies fixture", "version": "0.2.0" },
+  "paths": {
+    "/items": {
+      "get": {
+        "summary": "list_items",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+          }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/items/{item_id}/archive": {
+      "post": {
+        "summary": "archive_item",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/ItemId" }
+          }
+        ],
+        "responses": { "204": { "description": "Archived" }, "404": { "description": "Missing" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ItemId": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    }
+  }
+}
