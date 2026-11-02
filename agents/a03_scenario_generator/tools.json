@@ -143,7 +143,22 @@
           "title": "HttpStep",
           "type": "object"
         },
-        "Scenario": {
+        "ScenarioCategory": {
+          "description": "The 7 QE categories every ScenarioSet must cover (Master Plan v7).",
+          "enum": [
+            "happy",
+            "edge",
+            "stress",
+            "security",
+            "negative",
+            "adversarial",
+            "persona"
+          ],
+          "title": "ScenarioCategory",
+          "type": "string"
+        },
+        "ScenarioDraft": {
+          "description": "The per-scenario wire format: `repeat` and `concurrency` are required.\n\nOn `Scenario` both fields default to 1, which is right for a scenario\nwritten by hand or read back from a file. But a defaulted field is an\noptional field, and the generator left both out of all 14 scenarios —\nincluding one titled \"Many parallel transfers racing\" — even after the\nprompt spelled the requirement out in two places. A set where every\nscenario is concurrency=1, repeat=1 cannot reach a race or a double-spend\nhowever its categories are labelled.\n\nDropping the defaults makes the model state a number per scenario, so the\ndecision is taken rather than skipped. Whether the set as a whole actually\nexercises a race and a replay is a policy question, checked by the\ngenerator's validator where a correction can be fed back and retried.",
           "properties": {
             "id": {
               "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
@@ -183,16 +198,14 @@
               "$ref": "#/$defs/Expectation"
             },
             "repeat": {
-              "default": 1,
-              "description": "Send the action N times (idempotency / replay).",
+              "description": "Send the action N times (idempotency / replay). 1 = once.",
               "maximum": 50,
               "minimum": 1,
               "title": "Repeat",
               "type": "integer"
             },
             "concurrency": {
-              "default": 1,
-              "description": "Send the action N times in parallel (race).",
+              "description": "Send the action N times in parallel (race). 1 = no race.",
               "maximum": 50,
               "minimum": 1,
               "title": "Concurrency",
@@ -205,24 +218,12 @@
             "category",
             "rationale",
             "action",
-            "expectation"
+            "expectation",
+            "repeat",
+            "concurrency"
           ],
-          "title": "Scenario",
+          "title": "ScenarioDraft",
           "type": "object"
-        },
-        "ScenarioCategory": {
-          "description": "The 7 QE categories every ScenarioSet must cover (Master Plan v7).",
-          "enum": [
-            "happy",
-            "edge",
-            "stress",
-            "security",
-            "negative",
-            "adversarial",
-            "persona"
-          ],
-          "title": "ScenarioCategory",
-          "type": "string"
         },
         "Severity": {
           "enum": [
@@ -240,7 +241,7 @@
       "properties": {
         "scenarios": {
           "items": {
-            "$ref": "#/$defs/Scenario"
+            "$ref": "#/$defs/ScenarioDraft"
           },
           "maxItems": 40,
           "minItems": 1,

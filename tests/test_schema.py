@@ -24,6 +24,8 @@ def make_scenario(sid: str = "sc-001", category: str = "edge", **overrides) -> d
         "title": "Transfer above available balance",
         "category": category,
         "severity": "critical",
+        "repeat": 1,
+        "concurrency": 1,
         "rationale": "No stated minimum balance, so the source may be allowed to go negative.",
         "setup": [
             {

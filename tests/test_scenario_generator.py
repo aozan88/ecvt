@@ -86,9 +86,21 @@ class FakeClient:
 
 
 def full_payload() -> dict[str, Any]:
+    """Seven scenarios, one per category.
+
+    `stress` races and `adversarial` replays. A set where every scenario is a
+    single sequential request is rejected by the generator's validator, so a
+    fixture built that way would exercise the retry path rather than the
+    happy one.
+    """
+    modes: dict[str, dict[str, int]] = {
+        "stress": {"concurrency": 4},
+        "adversarial": {"repeat": 2},
+    }
     return {
         "scenarios": [
-            make_scenario(f"sc-{i:03d}", c.value) for i, c in enumerate(ALL_CATEGORIES, start=1)
+            make_scenario(f"sc-{i:03d}", c.value, **modes.get(c.value, {}))
+            for i, c in enumerate(ALL_CATEGORIES, start=1)
         ]
     }
 
@@ -108,7 +120,10 @@ def test_tool_schema_generated_from_pydantic():
     schema = tool["input_schema"]
     assert schema["type"] == "object"
     assert schema["required"] == ["scenarios"]
-    assert set(schema["$defs"]) >= {"Scenario", "HttpStep", "Expectation", "ScenarioCategory"}
+    assert set(schema["$defs"]) >= {"ScenarioDraft", "HttpStep", "Expectation", "ScenarioCategory"}
+    # The wire model makes both required, so the model has to state a number
+    # per scenario rather than silently inheriting 1 (see ScenarioDraft).
+    assert {"repeat", "concurrency"} <= set(schema["$defs"]["ScenarioDraft"]["required"])
     assert schema["$defs"]["ScenarioCategory"]["enum"] == [c.value for c in ALL_CATEGORIES]
 
 
@@ -201,6 +216,57 @@ def test_retry_on_missing_category():
     assert "rejected by schema validation" in correction
     assert "adversarial" in correction  # the actual missing category is named
     assert result.usage.calls == 2
+
+
+def test_retry_when_the_set_never_races_or_replays():
+    """A wholly sequential set is rejected and the omission is fed back.
+
+    This is the defect the live eval caught: 14 scenarios, every one at
+    concurrency=1 and repeat=1, including one titled "Many parallel transfers
+    racing". Such a set cannot reach a race or a double-spend, so the prompt
+    asked for both — and was ignored twice. The requirement now lives in the
+    validator, where the model is shown what it missed.
+    """
+    sequential = {
+        "scenarios": [
+            make_scenario(f"sc-{i:03d}", c.value) for i, c in enumerate(ALL_CATEGORIES, start=1)
+        ]
+    }
+    client = FakeClient([tool_use(sequential), tool_use(full_payload())])
+
+    scenario_set, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 2
+    correction = client.messages.calls[1]["messages"][-1]["content"]
+    assert "`concurrency` above 1" in correction
+    assert "`repeat` above 1" in correction
+    assert any(s.concurrency > 1 for s in scenario_set.scenarios)
+    assert any(s.repeat > 1 for s in scenario_set.scenarios)
+
+
+def test_a_read_only_set_need_not_replay():
+    """The requirement is scoped to sets that write.
+
+    A spec with only GETs has nothing to duplicate, so demanding a replay
+    there would reject correct output (sg-007's single-endpoint fixture).
+    """
+    reads = []
+    for i, c in enumerate(ALL_CATEGORIES, start=1):
+        s = make_scenario(f"sc-{i:03d}", c.value)
+        s["setup"] = []
+        s["action"] = {"name": "read", "method": "GET", "path": "/accounts/1/balance"}
+        s["expectation"]["probes"] = []
+        reads.append(s)
+    client = FakeClient([tool_use({"scenarios": reads})])
+
+    _, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 1
+    assert result.corrections == []
 
 
 def test_retry_on_invalid_schema():

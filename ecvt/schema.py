@@ -157,6 +157,31 @@ class Scenario(BaseModel):
         return self
 
 
+class ScenarioDraft(Scenario):
+    """The per-scenario wire format: `repeat` and `concurrency` are required.
+
+    On `Scenario` both fields default to 1, which is right for a scenario
+    written by hand or read back from a file. But a defaulted field is an
+    optional field, and the generator left both out of all 14 scenarios —
+    including one titled "Many parallel transfers racing" — even after the
+    prompt spelled the requirement out in two places. A set where every
+    scenario is concurrency=1, repeat=1 cannot reach a race or a double-spend
+    however its categories are labelled.
+
+    Dropping the defaults makes the model state a number per scenario, so the
+    decision is taken rather than skipped. Whether the set as a whole actually
+    exercises a race and a replay is a policy question, checked by the
+    generator's validator where a correction can be fed back and retried.
+    """
+
+    repeat: int = Field(
+        ge=1, le=50, description="Send the action N times (idempotency / replay). 1 = once."
+    )
+    concurrency: int = Field(
+        ge=1, le=50, description="Send the action N times in parallel (race). 1 = no race."
+    )
+
+
 class ScenarioSetDraft(BaseModel):
     """The generator's wire format — just the scenarios.
 
@@ -168,7 +193,7 @@ class ScenarioSetDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    scenarios: list[Scenario] = Field(min_length=1, max_length=40)
+    scenarios: list[ScenarioDraft] = Field(min_length=1, max_length=40)
 
     @model_validator(mode="after")
     def _unique_ids(self) -> ScenarioSetDraft:
@@ -180,6 +205,24 @@ class ScenarioSetDraft(BaseModel):
     def missing_categories(self) -> list[str]:
         present = {s.category.value for s in self.scenarios}
         return [c.value for c in ALL_CATEGORIES if c.value not in present]
+
+    def writes(self) -> bool:
+        return any(s.action.method is not HttpMethod.GET for s in self.scenarios)
+
+    def missing_execution_modes(self) -> list[str]:
+        """Which of `concurrency` / `repeat` the set never uses above 1.
+
+        Asked only of a set that writes: there is nothing to replay on a
+        read-only API, so demanding a duplicate there would be noise.
+        """
+        if not self.writes():
+            return []
+        missing = []
+        if not any(s.concurrency > 1 for s in self.scenarios):
+            missing.append("concurrency")
+        if not any(s.repeat > 1 for s in self.scenarios):
+            missing.append("repeat")
+        return missing
 
 
 class ScenarioSet(BaseModel):
