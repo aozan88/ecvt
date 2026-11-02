@@ -1,0 +1,103 @@
+# Gate G1 — M1 Scenario → Execution → Evaluation chain + CLI (Master Plan v7)
+# Run: python scripts/gate_check.py M1 --format plain -v
+#
+# G1-1 performs the live chain run into artifacts/gate-m1/ and the checks after
+# it inspect that output, so they run in order and skip together when there is
+# no API key. The gate writes only into artifacts/ (gitignored) — it uses
+# --report, never --record, so running the gate never touches docs/.
+gate: G1
+milestone: M1
+checks:
+  - id: G1-1
+    desc: ecvt run finishes in one command against a live target (exit 0)
+    requires_env: [ANTHROPIC_API_KEY]
+    timeout: 300
+    cmd: |
+      rm -rf artifacts/gate-m1
+      uvicorn app:app --app-dir examples/wallet-api --port 8766 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 40); do curl -sf localhost:8766/openapi.json -o /dev/null && break; sleep 0.3; done
+      python -m ecvt.cli run \
+        --target examples/wallet-api \
+        --base-url http://localhost:8766 \
+        --out-dir artifacts/gate-m1 \
+        --report
+      echo "CHAIN OK"
+    expect_stdout: CHAIN OK
+
+  - id: G1-2
+    desc: scenarios cover all 7 categories; one execution and one score each
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      python -c "
+      from ecvt.schema import ALL_CATEGORIES, read_scenarios_jsonl
+      from ecvt.results import read_executions_jsonl
+      from ecvt.scoring import read_scores_jsonl
+
+      d = 'artifacts/gate-m1'
+      scenarios = read_scenarios_jsonl(f'{d}/scenarios.jsonl')
+      executions = read_executions_jsonl(f'{d}/executions.jsonl')
+      scores = read_scores_jsonl(f'{d}/scores.jsonl')
+
+      present = {s.category.value for s in scenarios}
+      missing = [c.value for c in ALL_CATEGORIES if c.value not in present]
+      assert not missing, f'categories missing: {missing}'
+
+      ids = {s.id for s in scenarios}
+      assert {e.scenario_id for e in executions} == ids, 'an execution per scenario'
+      assert {s.scenario_id for s in scores} == ids, 'a score per scenario'
+      print(f'CHAIN COMPLETE {len(ids)} scenarios, 7 categories')
+      "
+    expect_stdout: CHAIN COMPLETE
+
+  - id: G1-3
+    desc: the three agents' eval datasets are well-formed with >= 10 cases
+    cmd: |
+      for a in a03_scenario_generator a05_execution a06_evaluation; do
+        python scripts/eval_runner.py "agents/$a/eval_dataset.jsonl" | tee /tmp/ecvt-eval-$a.txt
+        grep -q "Incomplete" /tmp/ecvt-eval-$a.txt && { echo "FAIL $a has too few cases"; exit 1; }
+      done
+      echo "DATASETS OK"
+    expect_stdout: DATASETS OK
+
+  - id: G1-4
+    desc: the three agents' eval pass rate is >= 80%
+    cmd: |
+      # scripts/eval_runner.py validates datasets but does not score them yet
+      # (M1-T2b). This check fails on purpose until it does: the plan's rule is
+      # that a box without evidence stays open, and a gate that reports PASS
+      # for an unmeasured criterion is worse than one that fails honestly.
+      echo "NOT MEASURED: eval_runner.py is a placeholder (M1-T2b)" >&2
+      exit 1
+
+  - id: G1-5
+    desc: pytest green (unit + integration)
+    timeout: 300
+    cmd: python -m pytest -q
+
+  - id: G1-6
+    desc: the report states the catch rate against ground truth
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      grep -oE "Catch rate: [0-9]+/[0-9]+" artifacts/gate-m1/report.md
+    expect_stdout: "Catch rate:"
+
+  - id: G1-7
+    desc: tokens and cost are logged for the run
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      python -c "
+      import json
+      meta = json.load(open('artifacts/gate-m1/run.json'))
+      usage = meta.get('usage') or {}
+      assert usage.get('total_tokens', 0) > 0, 'no tokens logged'
+      assert usage.get('cost_usd') is not None, 'cost not priced; fill config/pricing.json'
+      assert meta.get('elapsed_s', 0) > 0, 'no timing logged'
+      print(f\"USAGE OK {usage['total_tokens']} tokens, {usage['cost_usd']} USD\")
+      "
+    expect_stdout: USAGE OK
+
+  - id: G1-8
+    desc: tag v0.3.0 exists
+    cmd: git tag -l v0.3.0
+    expect_stdout: v0.3.0
