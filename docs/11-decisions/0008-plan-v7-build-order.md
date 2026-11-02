@@ -1,6 +1,6 @@
 # ADR 0008 — Plan v7 build order: chain first, Manager last
 
-**Status:** Proposed (review → Accepted)
+**Status:** Accepted
 **Date:** 2026-10-29
 **Context:** Master Plan v6.2 built agents in runtime order (Manager → Domain
 Intelligence → Scenario → Execution → Evaluation) on a week-based calendar
