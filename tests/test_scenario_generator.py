@@ -199,6 +199,55 @@ def test_retry_on_invalid_schema():
     assert "must start with" in result.corrections[0]
 
 
+def test_scenarios_sent_as_json_string_is_accepted():
+    """Observed in the first live run: the array arrived as a JSON string.
+
+    The content was valid, only the encoding was off, so it must not cost a
+    retry (that one cost ~10k output tokens).
+    """
+    payload = {"scenarios": json.dumps(full_payload()["scenarios"])}
+    client = FakeClient([tool_use(payload)])
+
+    scenario_set, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 1
+    assert result.corrections == []
+    assert scenario_set.covers_all_categories()
+    assert result.usage.calls == 1
+
+
+def test_coercion_leaves_genuine_type_errors_alone():
+    client = FakeClient([tool_use({"scenarios": "not json at all"})] * 3)
+    with pytest.raises(StructuredCallError):
+        sg.generate_scenario_set(
+            spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+        )
+
+
+def test_coerce_json_strings_is_conservative():
+    from ecvt.llm import coerce_json_strings
+
+    assert coerce_json_strings({"a": "[1, 2]"})["a"] == [1, 2]
+    assert coerce_json_strings({"a": '{"k": 1}'})["a"] == {"k": 1}
+    # Left untouched: plain text, numbers inside strings, broken JSON.
+    assert coerce_json_strings({"a": "hello"})["a"] == "hello"
+    assert coerce_json_strings({"a": "42"})["a"] == "42"
+    assert coerce_json_strings({"a": "[1, 2"})["a"] == "[1, 2"
+    assert coerce_json_strings({"a": 5})["a"] == 5
+
+
+def test_prompt_states_per_category_quota():
+    from ecvt.openapi_reader import read_openapi
+
+    prompt = sg.build_user_prompt(read_openapi(WALLET_SPEC), "t", per_category=2)
+    for category in ALL_CATEGORIES:
+        assert f"- {category.value}: 2" in prompt
+    assert "14 in total" in prompt
+    assert "not a string containing one" in prompt
+
+
 def test_text_only_response_is_retried():
     client = FakeClient([FakeText(text="Here are some scenarios..."), tool_use(full_payload())])
     _, result = sg.generate_scenario_set(

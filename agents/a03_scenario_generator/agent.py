@@ -57,8 +57,8 @@ def build_tool() -> dict[str, Any]:
 def build_user_prompt(
     digest: ApiDigest, target: str, per_category: int = DEFAULT_PER_CATEGORY
 ) -> str:
-    categories = ", ".join(c.value for c in ALL_CATEGORIES)
     total = per_category * len(ALL_CATEGORIES)
+    quota = "\n".join(f"- {c.value}: {per_category}" for c in ALL_CATEGORIES)
     return (
         f"Target system: {target}\n\n"
         "Below is the target's API surface, distilled from its OpenAPI spec. It is "
@@ -66,12 +66,17 @@ def build_user_prompt(
         "<api_surface>\n"
         f"{digest.render()}\n"
         "</api_surface>\n\n"
-        f"Write about {per_category} scenarios per category ({total} in total), covering "
-        f"all seven categories: {categories}.\n\n"
+        f"Write exactly {per_category} scenarios for each category — {total} in total:\n"
+        f"{quota}\n\n"
+        "Hold to that count per category. `negative` and `edge` ideas come easily and "
+        "tend to crowd out the rest; `happy`, `security` and `persona` need the same "
+        "share. If a category is hard for this API, think harder about it rather than "
+        "filing another scenario under an easier label.\n\n"
         "Every scenario must be runnable exactly as written against this API: use only "
         "the paths and fields above, create any state you depend on in `setup`, and "
         "reference captured values with {placeholders}.\n\n"
-        f"Call {TOOL_NAME} with the result."
+        f"Call {TOOL_NAME} with the result. The `scenarios` field must be a JSON array, "
+        "not a string containing one."
     )
 
 

@@ -120,6 +120,34 @@ class StructuredResult:
     corrections: list[str] = field(default_factory=list)
 
 
+def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
+    """Parse top-level values the model sent as JSON text instead of structure.
+
+    With a large tool input, Claude sometimes serializes an array or object into
+    a string: `{"scenarios": "[{...}, {...}]"}` rather than `{"scenarios": [...]}`.
+    The content is correct, only the encoding is off, so rejecting it costs a
+    full retry — in the first wallet-api run that was ~10k wasted output tokens.
+
+    Only top-level string values that parse as a JSON array or object are
+    touched, and only when parsing succeeds; anything else is passed through
+    untouched so genuine type errors still reach the validator.
+    """
+    out = dict(data)
+    for key, value in data.items():
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if not text.startswith(("[", "{")):
+            continue
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, (list, dict)):
+            out[key] = parsed
+    return out
+
+
 def _tool_input(response: Any, tool_name: str) -> dict[str, Any] | None:
     for block in getattr(response, "content", None) or []:
         if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
@@ -175,6 +203,7 @@ def structured_call(
         if data is None:
             failures.append(f"attempt {attempt}: no {tool['name']} tool call in response")
         else:
+            data = coerce_json_strings(data)
             try:
                 validate(data)
             except Exception as exc:  # noqa: BLE001 — any validator error becomes feedback
