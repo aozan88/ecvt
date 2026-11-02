@@ -29,7 +29,14 @@ from typing import Any
 from agents.a06_evaluation.agent import DEFAULT_JUDGE_PARALLEL
 from ecvt.execution import DEFAULT_BASE_URL, RunnerConfig, run_scenarios
 from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage
-from ecvt.reporting import REPO_ROOT, TREND_DOC, build_report, current_commit, record_trend
+from ecvt.reporting import (
+    REPO_ROOT,
+    TREND_DOC,
+    build_report,
+    current_commit,
+    record_latest,
+    record_trend,
+)
 from ecvt.results import write_executions_jsonl
 from ecvt.schema import read_scenarios_jsonl, write_scenarios_jsonl
 from ecvt.scoring import summarize, write_scores_jsonl
@@ -180,8 +187,10 @@ def _write_report(args: argparse.Namespace, out_dir: Path) -> None:
             " — read them: outside the baseline, or false positives"
         )
     if args.record:
-        doc = record_trend(stats, current_commit())
-        print(f"      recorded in {_display(doc)}")
+        commit = current_commit()
+        trend = record_trend(stats, commit)
+        latest = record_latest(report, commit)
+        print(f"      recorded in {_display(trend)} and {_display(latest)}")
 
 
 def _display(path: Path) -> str:
