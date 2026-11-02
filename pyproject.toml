@@ -10,6 +10,30 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 
+# `pip install -e .` declared nothing, so it produced an environment with the
+# console script and none of the libraries behind it. A Codespace installed
+# that way ran the gate's pytest with pytest-asyncio absent: 44 errors and
+# three failures, all of them async tests that never got to run.
+dependencies = [
+  "anthropic>=2",
+  "claude-agent-sdk",
+  "httpx",
+  "pydantic>=2",
+  "python-dotenv",
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+# fastapi and uvicorn belong here, not above: they serve the demo target and
+# the fixtures that exercise it, never ECVT itself.
+dev = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pytest",
+  "pytest-asyncio",
+  "ruff",
+]
+
 [project.scripts]
 ecvt = "ecvt.cli:main"
 
