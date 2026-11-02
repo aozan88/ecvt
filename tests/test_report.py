@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
+from ecvt import reporting as rp
 from ecvt.scoring import ScenarioScore, Verdict
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-
-import report as rp
 
 GT_PATH = Path("examples/wallet-api/ground_truth.yaml")
 
