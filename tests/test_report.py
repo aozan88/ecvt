@@ -1,0 +1,317 @@
+"""Catch-rate report tests (M1-T8)."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from ecvt.scoring import ScenarioScore, Verdict
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+
+import report as rp
+
+GT_PATH = Path("examples/wallet-api/ground_truth.yaml")
+
+
+def write_run(
+    tmp_path: Path,
+    scores: list[ScenarioScore],
+    endpoints: dict[str, str],
+    meta: dict | None = None,
+) -> Path:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    (run_dir / "scores.jsonl").write_text(
+        "\n".join(s.model_dump_json(exclude_none=True) for s in scores) + "\n",
+        encoding="utf-8",
+    )
+    records = [
+        {
+            "scenario_id": sid,
+            "category": "edge",
+            "base_url": "http://t",
+            "outcome": "completed",
+            "actions": [
+                {
+                    "name": "a",
+                    "endpoint": endpoint,
+                    "outcome": "ok",
+                    "status_code": 200,
+                }
+            ],
+        }
+        for sid, endpoint in endpoints.items()
+    ]
+    (run_dir / "executions.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
+    )
+    (run_dir / "run.json").write_text(
+        json.dumps(
+            meta
+            or {
+                "target": "examples/wallet-api",
+                "base_url": "http://t",
+                "judged": len(scores),
+                "judge_enabled": True,
+                "model": "claude-haiku-5-5",
+                "elapsed_s": 12.345,
+                "usage": {"total_tokens": 1000, "cost_usd": 0.001},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def score(sid: str, category: str, verdict: str = "fail") -> ScenarioScore:
+    return ScenarioScore(
+        scenario_id=sid,
+        category=category,
+        verdict=Verdict(verdict),
+        defect_suspected=verdict == "fail",
+        summary="s",
+    )
+
+
+# --- endpoint parsing ------------------------------------------------------
+
+
+def test_path_tail_ignores_placeholders():
+    assert rp._path_tail("/accounts/{account_id}/balance") == "balance"
+    assert rp._path_tail("/transfers") == "transfers"
+    assert rp._path_tail("/") == ""
+
+
+def test_parse_multiple_endpoints():
+    assert rp.parse_endpoints("POST /accounts; POST /transfers") == [
+        ("POST", "accounts"),
+        ("POST", "transfers"),
+    ]
+
+
+def test_loose_ground_truth_endpoint_matches_real_path():
+    """GT says 'GET /balance'; the scenario carries the full path."""
+    bugs = rp.load_ground_truth(GT_PATH)
+    gt07 = next(b for b in bugs if b.id == "GT-07")
+    assert ("GET", "balance") in gt07.endpoints
+
+    result = rp.attribute(
+        [score("sc-1", "negative")],
+        {"sc-1": "GET /accounts/{account_id}/balance"},
+        bugs,
+    )
+    assert result.unmatched == []
+    assert gt07.caught_by == ["sc-1"]
+
+
+# --- ground truth ----------------------------------------------------------
+
+
+def test_ground_truth_loads_ten_bugs():
+    bugs = rp.load_ground_truth(GT_PATH)
+    assert len(bugs) == 10
+    assert {b.id for b in bugs} == {f"GT-{i:02d}" for i in range(1, 11)}
+
+
+def test_every_ground_truth_category_has_a_family():
+    """A category with no family can never be attributed, so it must not exist."""
+    bugs = rp.load_ground_truth(GT_PATH)
+    missing = {b.category for b in bugs if b.category not in rp.CATEGORY_FAMILIES}
+    assert not missing, f"no scenario-category family for: {missing}"
+
+
+def test_empty_baseline_rejected(tmp_path):
+    path = tmp_path / "gt.yaml"
+    path.write_text("bugs: []\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no bugs listed"):
+        rp.load_ground_truth(path)
+
+
+# --- attribution -----------------------------------------------------------
+
+
+def test_passing_scenario_is_never_attributed():
+    bugs = rp.load_ground_truth(GT_PATH)
+    rp.attribute(
+        [score("sc-1", "edge", verdict="pass")], {"sc-1": "POST /transfers"}, bugs
+    )
+    assert all(not b.caught for b in bugs)
+
+
+def test_not_run_scenario_is_never_attributed():
+    bugs = rp.load_ground_truth(GT_PATH)
+    rp.attribute(
+        [score("sc-1", "edge", verdict="not_run")], {"sc-1": "POST /transfers"}, bugs
+    )
+    assert all(not b.caught for b in bugs)
+
+
+def test_category_outside_the_family_does_not_attribute():
+    bugs = rp.load_ground_truth(GT_PATH)
+    # GT-05 is adversarial-idempotency: {adversarial, stress}. A security
+    # scenario on the same endpoint must not be credited with it.
+    result = rp.attribute([score("sc-1", "security")], {"sc-1": "POST /transfers"}, bugs)
+    gt05 = next(b for b in bugs if b.id == "GT-05")
+    assert not gt05.caught
+    assert result.unmatched == [], "it still fits GT-04 security-authz"
+
+
+def test_wrong_endpoint_does_not_attribute():
+    bugs = rp.load_ground_truth(GT_PATH)
+    result = rp.attribute(
+        [score("sc-1", "adversarial")], {"sc-1": "GET /accounts/{id}/transactions"}, bugs
+    )
+    assert all(not b.caught for b in bugs)
+    assert result.unmatched == ["sc-1"]
+    assert result.redundant == []
+
+
+def test_one_scenario_is_credited_with_at_most_one_bug():
+    """The cap that keeps the rate honest.
+
+    Six of wallet-api's defects sit on POST /transfers and an `edge` scenario
+    fits several of their families. Crediting them all would report 6/10 for a
+    run that found one problem.
+    """
+    bugs = rp.load_ground_truth(GT_PATH)
+    rp.attribute([score("sc-1", "edge")], {"sc-1": "POST /transfers"}, bugs)
+    assert len([b for b in bugs if b.caught]) == 1
+
+
+def test_most_specific_family_wins_the_defect():
+    """`boundary` is {edge, stress} — narrower than the other edge families."""
+    bugs = rp.load_ground_truth(GT_PATH)
+    rp.attribute([score("sc-1", "edge")], {"sc-1": "POST /transfers"}, bugs)
+    credited = next(b for b in bugs if b.caught)
+    assert credited.category == "boundary"
+
+
+def test_extra_failures_on_a_taken_defect_are_redundant_not_missing():
+    bugs = rp.load_ground_truth(GT_PATH)
+    result = rp.attribute(
+        [score("sc-1", "security"), score("sc-2", "security")],
+        {"sc-1": "POST /transfers", "sc-2": "POST /transfers"},
+        bugs,
+    )
+    assert len([b for b in bugs if b.caught]) == 1
+    assert result.redundant == ["sc-2"]
+    assert result.unmatched == []
+
+
+# --- report ----------------------------------------------------------------
+
+
+def test_report_counts_and_markdown(tmp_path):
+    run_dir = write_run(
+        tmp_path,
+        [score("sc-1", "edge"), score("sc-2", "adversarial"), score("sc-3", "happy", "pass")],
+        {
+            "sc-1": "POST /transfers",
+            "sc-2": "POST /transfers",
+            "sc-3": "POST /transfers",
+        },
+    )
+    text, stats = rp.build_report(run_dir, GT_PATH)
+
+    assert stats["known_bugs"] == 10
+    assert 0 < stats["caught"] <= 2, "two failing scenarios cannot find more than two"
+    assert stats["catch_rate"] == f"{stats['caught']}/10"
+    assert stats["scenarios"] == 3
+    assert stats["cost_usd"] == 0.001
+    assert stats["elapsed_s"] == 12.345
+
+    assert "# ECVT run report" in text
+    assert "GT-01" in text and "GT-10" in text
+    assert "How attribution works" in text
+    assert "ADR 0007" in text
+
+
+def test_report_lists_misses_and_unattributed(tmp_path):
+    run_dir = write_run(
+        tmp_path,
+        [score("sc-odd", "persona")],
+        {"sc-odd": "GET /accounts/{id}/transactions"},
+    )
+    text, stats = rp.build_report(run_dir, GT_PATH)
+
+    assert stats["caught"] == 0
+    assert stats["unattributed_failures"] == 1
+    assert "sc-odd" in text
+    assert "false positive" in text
+    assert "## Not detected" in text
+
+
+def test_report_handles_missing_run_json(tmp_path):
+    run_dir = write_run(tmp_path, [score("sc-1", "edge")], {"sc-1": "POST /transfers"})
+    (run_dir / "run.json").unlink()
+    text, stats = rp.build_report(run_dir, GT_PATH)
+    assert stats["tokens"] is None
+    assert "unknown" in text
+
+
+# --- trend table -----------------------------------------------------------
+
+
+def test_trend_doc_created_then_appended(tmp_path):
+    doc = tmp_path / "catch-rate.md"
+    stats = {
+        "catch_rate": "4/10",
+        "unattributed_failures": 1,
+        "scenarios": 14,
+        "judged": 14,
+        "tokens": 59894,
+        "cost_usd": 0.007013,
+        "elapsed_s": 49.6,
+        "model": "claude-haiku-5-5",
+    }
+
+    rp.record_trend(stats, "abc1234", doc=doc)
+    first = doc.read_text(encoding="utf-8")
+    assert "# Catch rate over time" in first
+    assert "| 4/10 |" in first
+    assert "Regression Agent" in first
+
+    rp.record_trend({**stats, "catch_rate": "6/10"}, "def5678", doc=doc)
+    second = doc.read_text(encoding="utf-8")
+    assert "| 4/10 |" in second and "| 6/10 |" in second
+    assert second.count(rp.TREND_MARKER) == 1
+    assert second.index("6/10") < second.index("4/10"), "newest row first"
+
+
+def test_trend_row_tolerates_missing_cost():
+    row = rp.trend_row(
+        {"catch_rate": "0/10", "unattributed_failures": 0, "scenarios": 1, "cost_usd": None},
+        "aaa",
+    )
+    assert "| ? |" in row
+
+
+# --- CLI -------------------------------------------------------------------
+
+
+def test_cli_writes_report(tmp_path, capsys):
+    run_dir = write_run(tmp_path, [score("sc-1", "edge")], {"sc-1": "POST /transfers"})
+    assert rp.main([str(run_dir), "--ground-truth", str(GT_PATH)]) == 0
+    assert (run_dir / "report.md").exists()
+    assert "catch rate" in capsys.readouterr().out
+
+
+def test_cli_infers_ground_truth_from_run_json(tmp_path):
+    run_dir = write_run(tmp_path, [score("sc-1", "edge")], {"sc-1": "POST /transfers"})
+    assert rp.main([str(run_dir)]) == 0
+
+
+def test_cli_reports_missing_run_dir(tmp_path, capsys):
+    assert rp.main([str(tmp_path / "nope")]) == 1
+    assert "No scores.jsonl" in capsys.readouterr().err
+
+
+def test_cli_reports_missing_baseline(tmp_path, capsys):
+    run_dir = write_run(tmp_path, [score("sc-1", "edge")], {"sc-1": "POST /transfers"})
+    assert rp.main([str(run_dir), "--ground-truth", str(tmp_path / "nope.yaml")]) == 1
+    assert "No baseline" in capsys.readouterr().err
