@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Token prices in USD per MILLION tokens, used only to turn logged token",
+    "counts into a cost figure (gate G1: 'token ve maliyet loglanir').",
+    "Ships empty on purpose: a guessed price in a cost log is worse than a",
+    "blank one, so cost_usd stays null until these are filled in from the",
+    "official pricing page. Token counts are always logged either way.",
+    "Fill per model, e.g. {\"input\": 1.0, \"output\": 5.0, \"cache_read\": 0.1,",
+    "\"cache_write\": 1.25}."
+  ],
+  "models": {
+    "claude-haiku-5-5": {},
+    "claude-sonnet-5-5": {}
+  }
+}
