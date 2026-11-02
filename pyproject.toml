@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ecvt"
 version = "0.1.0"
@@ -8,6 +12,17 @@ license = { text = "MIT" }
 
 [project.scripts]
 ecvt = "ecvt.cli:main"
+
+# The repo is a flat layout with several non-package top-level directories
+# (gates/, config/, landing/, setup/, docs/), so setuptools refuses to guess
+# what to install. These say exactly what ships.
+[tool.setuptools.packages.find]
+include = ["ecvt*", "agents*", "plugins*"]
+
+# Agents read their own prompts at runtime (`load_system_prompt()`), so the
+# markdown and schema files travel with the code, not just the .py files.
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.json", "*.jsonl"]
 
 [tool.ruff]
 line-length = 100
