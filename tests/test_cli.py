@@ -217,3 +217,83 @@ def test_parser_defaults():
     assert args.base_url == "http://localhost:8000"
     assert args.per_category == 2
     assert args.no_judge is False
+
+
+# --- report integration ----------------------------------------------------
+
+
+def test_run_with_record_writes_report_and_trend(
+    live_target, scenarios_file, tmp_path, monkeypatch, capsys
+):
+    """One command produces the number, instead of a step you have to remember."""
+    trend = tmp_path / "catch-rate.md"
+    monkeypatch.setattr("ecvt.reporting.TREND_DOC", trend)
+    monkeypatch.setattr("ecvt.cli.TREND_DOC", trend)
+
+    out = tmp_path / "artifacts"
+    code = main(
+        [
+            "run",
+            "--scenarios",
+            str(scenarios_file),
+            "--base-url",
+            live_target,
+            "--out-dir",
+            str(out),
+            "--no-judge",
+            "--record",
+        ]
+    )
+    assert code == 0
+
+    report = (out / "report.md").read_text(encoding="utf-8")
+    assert "Catch rate:" in report
+    assert "GT-03" in report
+
+    assert trend.exists(), "--record must create the trend table"
+    assert "# Catch rate over time" in trend.read_text(encoding="utf-8")
+    assert "catch rate:" in capsys.readouterr().out
+
+
+def test_run_without_report_flag_writes_no_report(live_target, scenarios_file, tmp_path):
+    out = tmp_path / "artifacts"
+    main(
+        [
+            "run",
+            "--scenarios",
+            str(scenarios_file),
+            "--base-url",
+            live_target,
+            "--out-dir",
+            str(out),
+            "--no-judge",
+        ]
+    )
+    assert not (out / "report.md").exists()
+
+
+def test_report_on_target_without_baseline(live_target, scenarios_file, tmp_path, capsys):
+    """A target with no ground truth is normal, not an error."""
+    bare = tmp_path / "bare-target"
+    bare.mkdir()
+    (bare / "openapi.json").write_text("{}", encoding="utf-8")
+
+    out = tmp_path / "artifacts"
+    code = main(
+        [
+            "run",
+            "--scenarios",
+            str(scenarios_file),
+            "--target",
+            str(bare),
+            "--base-url",
+            live_target,
+            "--out-dir",
+            str(out),
+            "--no-judge",
+            "--report",
+        ]
+    )
+    assert code == 0
+    assert "no baseline" in capsys.readouterr().out
+    assert not (out / "report.md").exists()
