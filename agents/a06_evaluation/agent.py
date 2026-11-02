@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,10 @@ from ecvt.scoring import (
 AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "evaluation"
 TOOL_NAME = "evaluation_judge_output"
+DEFAULT_JUDGE_PARALLEL = 6
+"""Judgements in flight at once. Independent calls, so the only reasons to cap
+are socket pressure on a large suite and the per-minute rate limit."""
+
 BODY_CHARS = 600
 """Response bodies are trimmed before they reach the prompt: a judgement needs
 the figures, not every byte, and the prompt prefix stays cacheable."""
@@ -159,11 +164,16 @@ def judge_scenario(
     *,
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
-    usage: Usage | None = None,
-) -> DimensionScore:
-    """One model call for one scenario. Never raises: a judge that could not
-    answer yields an `inconclusive` dimension, so the run still produces a
-    score (ADR 0006)."""
+) -> tuple[DimensionScore, Usage]:
+    """One model call for one scenario.
+
+    Returns its own Usage rather than mutating a shared one, so judgements can
+    run in parallel without threads racing on the counters.
+
+    Never raises: a judge that could not answer yields an `inconclusive`
+    dimension, so the run still produces a score (ADR 0006).
+    """
+    own_usage = Usage(model=model)
     try:
         result = structured_call(
             system=load_system_prompt(),
@@ -175,18 +185,18 @@ def judge_scenario(
             max_tokens=2048,
         )
     except StructuredCallError as exc:
-        if usage is not None:
-            _merge_usage(usage, exc.usage)
-        return DimensionScore(
-            dimension=Dimension.JUDGE,
-            verdict=Verdict.INCONCLUSIVE,
-            rationale=f"the judge produced no usable verdict: {exc}",
-            model=model,
+        _merge_usage(own_usage, exc.usage)
+        return (
+            DimensionScore(
+                dimension=Dimension.JUDGE,
+                verdict=Verdict.INCONCLUSIVE,
+                rationale=f"the judge produced no usable verdict: {exc}",
+                model=model,
+            ),
+            own_usage,
         )
 
-    if usage is not None:
-        _merge_usage(usage, result.usage)
-
+    _merge_usage(own_usage, result.usage)
     output = JudgeOutput.model_validate(result.data)
     checks = [
         {
@@ -197,12 +207,15 @@ def judge_scenario(
         }
         for item in output.invariants
     ]
-    return DimensionScore(
-        dimension=Dimension.JUDGE,
-        verdict=output.verdict,
-        rationale=output.rationale,
-        checks=checks,
-        model=model,
+    return (
+        DimensionScore(
+            dimension=Dimension.JUDGE,
+            verdict=output.verdict,
+            rationale=output.rationale,
+            checks=checks,
+            model=model,
+        ),
+        own_usage,
     )
 
 
@@ -223,23 +236,60 @@ def score_scenarios(
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
     use_judge: bool = True,
+    max_parallel: int = DEFAULT_JUDGE_PARALLEL,
 ) -> tuple[list[ScenarioScore], Usage]:
-    """Score every scenario that has an execution record."""
+    """Score every scenario that has an execution record.
+
+    Rules run first and in sequence — they are free. The judgements that
+    survive `needs_judge` then run `max_parallel` at a time: each is an
+    independent call about one scenario, so scenario 7's verdict never waits
+    on scenario 6's. Sequential judging dominated the wall clock (14 scenarios
+    took ~38s of a 50s run); bounded parallelism keeps that in hand without
+    opening 1000 sockets on a large suite, and leaves room under the
+    per-minute rate limit (ADR 0009).
+    """
     by_id = {r.scenario_id: r for r in records}
-    usage = Usage(model=model)
-    scores: list[ScenarioScore] = []
+    pairs: list[tuple[Scenario, ExecutionRecord, DimensionScore]] = []
 
     for scenario in scenarios:
         record = by_id.get(scenario.id)
         if record is None:
             continue
-        dimensions = [run_rules(scenario, record)]
-        if use_judge and needs_judge(scenario, dimensions[0]):
-            dimensions.append(
-                judge_scenario(
-                    scenario, record, client=client, model=model, usage=usage
-                )
-            )
+        pairs.append((scenario, record, run_rules(scenario, record)))
+
+    to_judge = [
+        index
+        for index, (scenario, _, rule) in enumerate(pairs)
+        if use_judge and needs_judge(scenario, rule)
+    ]
+
+    judged: dict[int, tuple[DimensionScore, Usage]] = {}
+    if to_judge:
+        workers = max(1, min(max_parallel, len(to_judge)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    judge_scenario,
+                    pairs[index][0],
+                    pairs[index][1],
+                    client=client,
+                    model=model,
+                ): index
+                for index in to_judge
+            }
+            for future in as_completed(futures):
+                judged[futures[future]] = future.result()
+
+    # Merge in scenario order, not completion order, so the usage log and the
+    # scores file read the same whichever call finished first.
+    usage = Usage(model=model)
+    scores: list[ScenarioScore] = []
+    for index, (scenario, record, rule) in enumerate(pairs):
+        dimensions = [rule]
+        if index in judged:
+            judge_dimension, judge_usage = judged[index]
+            dimensions.append(judge_dimension)
+            _merge_usage(usage, judge_usage)
         scores.append(combine(scenario, record, dimensions))
 
     return scores, usage
@@ -251,6 +301,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--executions", default="artifacts/executions.jsonl")
     parser.add_argument("--out", default="artifacts/scores.jsonl")
     parser.add_argument("--model", default=DEFAULT_SUBAGENT_MODEL)
+    parser.add_argument(
+        "--max-parallel",
+        type=int,
+        default=DEFAULT_JUDGE_PARALLEL,
+        help="Judgements in flight at once.",
+    )
     parser.add_argument(
         "--no-judge",
         action="store_true",
@@ -270,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     scores, usage = score_scenarios(
-        scenarios, records, model=args.model, use_judge=not args.no_judge
+        scenarios,
+        records,
+        model=args.model,
+        use_judge=not args.no_judge,
+        max_parallel=args.max_parallel,
     )
     if not scores:
         print("No scenario had a matching execution record.", file=sys.stderr)

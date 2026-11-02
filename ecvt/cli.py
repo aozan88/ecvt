@@ -26,8 +26,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from agents.a06_evaluation.agent import DEFAULT_JUDGE_PARALLEL
 from ecvt.execution import DEFAULT_BASE_URL, RunnerConfig, run_scenarios
 from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage
+from ecvt.reporting import REPO_ROOT, TREND_DOC, build_report, current_commit, record_trend
 from ecvt.results import write_executions_jsonl
 from ecvt.schema import read_scenarios_jsonl, write_scenarios_jsonl
 from ecvt.scoring import summarize, write_scores_jsonl
@@ -113,7 +115,11 @@ def run_chain(args: argparse.Namespace) -> int:
 
     _stage("scoring" + (" (rules only)" if args.no_judge else " (rules + judge)"), 3, total)
     scores, judge_usage = score_scenarios(
-        scenarios, records, model=args.model, use_judge=not args.no_judge
+        scenarios,
+        records,
+        model=args.model,
+        use_judge=not args.no_judge,
+        max_parallel=args.max_parallel,
     )
     if not scores:
         raise StageError("no scenario had a matching execution record")
@@ -146,7 +152,48 @@ def run_chain(args: argparse.Namespace) -> int:
     print(f"      defects suspected: {stats['defects_suspected']} · judged: {stats['judged']}")
     print(f"      tokens: {usage.total_tokens} · cost: {usage.cost_usd()}")
     print(f"      {elapsed:.1f}s → {out_dir}/")
+
+    if args.report or args.record:
+        _write_report(args, out_dir)
     return 0
+
+
+def _write_report(args: argparse.Namespace, out_dir: Path) -> None:
+    """Catch rate against the target's baseline, if it has one.
+
+    Part of `run` rather than a separate command: as its own step it was one
+    more thing to remember, and a run without its number is half a result.
+    A target with no baseline is normal — not every system ships one — so the
+    absence is reported, not treated as a failure.
+    """
+    baseline = Path(args.target) / "ground_truth.yaml"
+    if not baseline.exists():
+        print(f"      no baseline at {baseline}, so no catch rate")
+        return
+
+    report, stats = build_report(out_dir, baseline)
+    (out_dir / "report.md").write_text(report + "\n", encoding="utf-8")
+    print(f"      catch rate: {stats['catch_rate']} known defects → {out_dir}/report.md")
+    if stats["unattributed_failures"]:
+        print(
+            f"      {stats['unattributed_failures']} failure(s) fit no known defect"
+            " — read them: outside the baseline, or false positives"
+        )
+    if args.record:
+        doc = record_trend(stats, current_commit())
+        print(f"      recorded in {_display(doc)}")
+
+
+def _display(path: Path) -> str:
+    """Repo-relative when it can be, absolute otherwise.
+
+    Formatting a path must not be able to fail a run that already did its
+    work: `relative_to` raises for anything outside the repo.
+    """
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _merge(total: Usage, part: Usage) -> None:
@@ -184,6 +231,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--no-judge", action="store_true", help="Rules only — no model call while scoring."
+    )
+    run.add_argument(
+        "--max-parallel",
+        type=int,
+        default=DEFAULT_JUDGE_PARALLEL,
+        help="Judgements in flight at once.",
+    )
+    run.add_argument(
+        "--report",
+        action="store_true",
+        help="Also write report.md with the catch rate against the target's baseline.",
+    )
+    run.add_argument(
+        "--record",
+        action="store_true",
+        help=f"Write the report and append a row to {TREND_DOC.name}. Implies --report.",
     )
     return parser
 

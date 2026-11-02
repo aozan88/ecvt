@@ -7,6 +7,8 @@ prompt assembly, schema enforcement and retry path are all covered in CI.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,15 +55,29 @@ class FakeResponse:
 
 
 class FakeMessages:
+    """Replays canned responses. Thread-safe, because the Evaluation agent
+    judges several scenarios in parallel and would otherwise race here."""
+
     def __init__(self, payloads: list[Any]) -> None:
         self._payloads = list(payloads)
+        self._lock = threading.Lock()
         self.calls: list[dict[str, Any]] = []
+        self.in_flight = 0
+        self.max_in_flight = 0
 
     def create(self, **kwargs: Any) -> FakeResponse:
-        self.calls.append(kwargs)
-        payload = self._payloads.pop(0)
-        content = [payload] if not isinstance(payload, list) else payload
-        return FakeResponse(content=content, usage=FakeUsage())
+        with self._lock:
+            self.calls.append(kwargs)
+            payload = self._payloads.pop(0)
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            time.sleep(0.02)  # long enough for overlap to be observable
+            content = [payload] if not isinstance(payload, list) else payload
+            return FakeResponse(content=content, usage=FakeUsage())
+        finally:
+            with self._lock:
+                self.in_flight -= 1
 
 
 class FakeClient:
