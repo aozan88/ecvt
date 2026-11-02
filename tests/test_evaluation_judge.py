@@ -313,3 +313,48 @@ async def test_cli_no_judge_end_to_end(client, config, tmp_path, monkeypatch):
 def test_cli_reports_missing_input(tmp_path, capsys):
     assert ev.main(["--scenarios", str(tmp_path / "nope.jsonl"), "--no-judge"]) == 1
     assert "Could not read inputs" in capsys.readouterr().err
+
+
+# --- parallelism -----------------------------------------------------------
+
+
+async def test_judgements_run_in_parallel(client, config):
+    """The fix for a 50s run: judging 6 scenarios must overlap, not queue.
+
+    Each judgement is an independent call about one scenario, so nothing is
+    gained by waiting for the previous one.
+    """
+    scenarios = [
+        build(f"sc-{i}", "edge", transfer(500.0), [422], probes=PROBES) for i in range(6)
+    ]
+    records = [await run_scenario(s, client, config) for s in scenarios]
+    fake = FakeClient([verdict_payload() for _ in scenarios])
+
+    scores, usage = ev.score_scenarios(scenarios, records, client=fake, max_parallel=6)
+
+    assert len(scores) == 6
+    assert usage.calls == 6
+    assert fake.messages.max_in_flight > 1, "judgements were issued sequentially"
+
+
+async def test_max_parallel_is_respected(client, config):
+    scenarios = [
+        build(f"sc-{i}", "edge", transfer(500.0), [422], probes=PROBES) for i in range(6)
+    ]
+    records = [await run_scenario(s, client, config) for s in scenarios]
+    fake = FakeClient([verdict_payload() for _ in scenarios])
+
+    ev.score_scenarios(scenarios, records, client=fake, max_parallel=2)
+    assert fake.messages.max_in_flight <= 2
+
+
+async def test_scores_keep_scenario_order_regardless_of_completion(client, config):
+    """Results are merged in scenario order, so the files read the same every run."""
+    scenarios = [
+        build(f"sc-{i}", "edge", transfer(500.0), [422], probes=PROBES) for i in range(5)
+    ]
+    records = [await run_scenario(s, client, config) for s in scenarios]
+    fake = FakeClient([verdict_payload() for _ in scenarios])
+
+    scores, _ = ev.score_scenarios(scenarios, records, client=fake, max_parallel=5)
+    assert [s.scenario_id for s in scores] == [f"sc-{i}" for i in range(5)]
