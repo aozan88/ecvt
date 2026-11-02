@@ -311,3 +311,77 @@ def test_cli_reports_missing_baseline(tmp_path, capsys):
     run_dir = write_run(tmp_path, [score("sc-1", "edge")], {"sc-1": "POST /transfers"})
     assert rp.main([str(run_dir), "--ground-truth", str(tmp_path / "nope.yaml")]) == 1
     assert "No baseline" in capsys.readouterr().err
+
+
+# --- scenario results table ------------------------------------------------
+
+
+def test_report_lists_every_scenario_with_its_verdict(tmp_path):
+    """The results list: scores.jsonl is machine-readable and gitignored, so
+    without this section the per-scenario outcome is documented nowhere."""
+    scores = [
+        score("sc-pass", "happy", "pass"),
+        score("sc-fail", "edge", "fail"),
+        score("sc-unknown", "stress", "inconclusive"),
+        score("sc-broken", "persona", "not_run"),
+    ]
+    run_dir = write_run(tmp_path, scores, {s.scenario_id: "POST /transfers" for s in scores})
+    text, _ = rp.build_report(run_dir, GT_PATH)
+
+    assert "## Scenario results" in text
+    for sid in ("sc-pass", "sc-fail", "sc-unknown", "sc-broken"):
+        assert f"`{sid}`" in text
+
+    # Failures first: that is what a reader opens the report for.
+    assert text.index("sc-fail") < text.index("sc-unknown") < text.index("sc-pass")
+
+
+def test_scenario_table_marks_which_cost_a_model_call(tmp_path):
+    from ecvt.scoring import Dimension, DimensionScore
+
+    judged = score("sc-judged", "edge", "fail")
+    judged.dimensions = [DimensionScore(dimension=Dimension.JUDGE, verdict=Verdict.FAIL)]
+    plain = score("sc-rules", "edge", "fail")
+
+    run_dir = write_run(
+        tmp_path, [judged, plain], {"sc-judged": "POST /transfers", "sc-rules": "POST /transfers"}
+    )
+    text, _ = rp.build_report(run_dir, GT_PATH)
+
+    judged_row = next(ln for ln in text.splitlines() if "sc-judged" in ln)
+    plain_row = next(ln for ln in text.splitlines() if "sc-rules" in ln)
+    assert "| yes |" in judged_row
+    assert "| — |" in plain_row
+
+
+def test_pipe_in_a_summary_does_not_break_the_table(tmp_path):
+    bad = score("sc-pipe", "edge", "fail")
+    bad.summary = "returned [200] | should have rejected"
+    run_dir = write_run(tmp_path, [bad], {"sc-pipe": "POST /transfers"})
+    text, _ = rp.build_report(run_dir, GT_PATH)
+
+    row = next(ln for ln in text.splitlines() if "sc-pipe" in ln)
+    assert row.count("|") == 6, "an unescaped pipe would add a phantom column"
+
+
+# --- latest-run snapshot ---------------------------------------------------
+
+
+def test_record_latest_writes_snapshot(tmp_path):
+    doc = tmp_path / "latest-run.md"
+    rp.record_latest("# ECVT run report\n\nbody here", "abc1234", doc=doc)
+
+    text = doc.read_text(encoding="utf-8")
+    assert "body here" in text
+    assert "commit abc1234" in text
+    assert "Do not edit by hand" in text
+
+
+def test_record_latest_overwrites_rather_than_appending(tmp_path):
+    doc = tmp_path / "latest-run.md"
+    rp.record_latest("first run", "aaa", doc=doc)
+    rp.record_latest("second run", "bbb", doc=doc)
+
+    text = doc.read_text(encoding="utf-8")
+    assert "second run" in text
+    assert "first run" not in text, "one file, replaced; history lives in git"
