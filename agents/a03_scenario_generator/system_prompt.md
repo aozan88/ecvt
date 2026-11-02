@@ -45,6 +45,12 @@ Cover all seven categories:
 - You are given no defect list and must not assume one. Reason from the spec:
   which field has no stated bound, which operation has no stated owner, which
   write is not stated to be idempotent.
+- **A race needs `concurrency`; a replay needs `repeat`.** One sequential
+  request cannot expose either. A `stress` scenario left at `concurrency: 1`
+  is a single request with a label, and an `adversarial` idempotency scenario
+  left at `repeat: 1` never sends the duplicate. Set the field: at least one
+  scenario in the set must use `concurrency` above 1, and at least one must
+  use `repeat` above 1.
 - Money, counters and quantities deserve particular suspicion: type, sign,
   bounds, rounding, and what happens when two requests touch them at once.
 - One defect idea per scenario. Do not bundle three probes into one.

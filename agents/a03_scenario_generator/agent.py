@@ -75,6 +75,9 @@ def build_user_prompt(
         "Every scenario must be runnable exactly as written against this API: use only "
         "the paths and fields above, create any state you depend on in `setup`, and "
         "reference captured values with {placeholders}.\n\n"
+        "At least one scenario must set `concurrency` above 1 and at least one must set "
+        "`repeat` above 1 — a race and a replay cannot be seen from one sequential "
+        "request.\n\n"
         f"Call {TOOL_NAME} with the result. The `scenarios` field must be a JSON array, "
         "not a string containing one."
     )

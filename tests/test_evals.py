@@ -467,3 +467,202 @@ def test_rubrics_assert_something_about_the_output(agent: str):
             f"{item.id} refers to itself, which flips the grader's polarity"
         )
         assert len(item.rubric) <= 400, f"{item.id} rubric is an essay, not an assertion"
+
+
+# --- code-based checks -----------------------------------------------------
+
+
+def check_case(**kw: Any) -> EvalCase:
+    data: dict[str, Any] = {
+        "id": "c",
+        "input": {"spec": "examples/wallet-api/openapi.json"},
+        "category": "happy-path",
+        "scoring": "python-check",
+    }
+    data.update(kw)
+    return EvalCase(**data)
+
+
+def scenario_payload(*scenarios: dict[str, Any]) -> Invocation:
+    return Invocation(text="", obj={"scenarios": list(scenarios)})
+
+
+def gen_scenario(
+    sid: str = "sc-1",
+    *,
+    setup: list[dict[str, Any]] | None = None,
+    action: dict[str, Any] | None = None,
+    probes: list[dict[str, Any]] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": sid,
+        "setup": setup
+        if setup is not None
+        else [
+            {
+                "name": "mk",
+                "method": "POST",
+                "path": "/accounts",
+                "body": {"owner": "a"},
+                "save": {"src": "id"},
+            }
+        ],
+        "action": action
+        or {
+            "name": "t",
+            "method": "POST",
+            "path": "/transfers",
+            "body": {"from_account": "{src}", "to_account": "{src}", "amount": 1.0},
+        },
+        "expectation": {"probes": probes or []},
+    }
+    data.update(extra)
+    return data
+
+
+def test_placeholder_check_accepts_a_bound_set():
+    from ecvt.eval_checks import placeholders_are_bound
+
+    ok, detail = placeholders_are_bound(check_case(), scenario_payload(gen_scenario()))
+    assert ok and "bound" in detail
+
+
+def test_placeholder_check_names_the_unbound_one():
+    from ecvt.eval_checks import placeholders_are_bound
+
+    bad = gen_scenario(
+        setup=[],
+        action={"name": "t", "method": "POST", "path": "/transfers", "body": {"x": "{nope}"}},
+    )
+    ok, detail = placeholders_are_bound(check_case(), scenario_payload(bad))
+    assert not ok
+    assert "{nope}" in detail
+
+
+def test_placeholder_check_rejects_a_step_using_its_own_save():
+    """A step cannot reference what it is about to produce."""
+    from ecvt.eval_checks import placeholders_are_bound
+
+    bad = gen_scenario(
+        setup=[
+            {
+                "name": "mk",
+                "method": "POST",
+                "path": "/accounts",
+                "body": {"owner": "{src}"},
+                "save": {"src": "id"},
+            }
+        ]
+    )
+    ok, _ = placeholders_are_bound(check_case(), scenario_payload(bad))
+    assert not ok
+
+
+def test_placeholder_check_lets_probes_use_action_saves():
+    from ecvt.eval_checks import placeholders_are_bound
+
+    good = gen_scenario(
+        setup=[],
+        action={
+            "name": "t",
+            "method": "POST",
+            "path": "/accounts",
+            "body": {"owner": "a"},
+            "save": {"made": "id"},
+        },
+        probes=[{"name": "r", "method": "GET", "path": "/accounts/{made}/balance"}],
+    )
+    ok, _ = placeholders_are_bound(check_case(), scenario_payload(good))
+    assert ok
+
+
+def test_spec_check_allows_a_concrete_id_where_the_spec_has_a_parameter():
+    """A 404 scenario must put a real value where the spec has {account_id}."""
+    from ecvt.eval_checks import only_spec_endpoints
+
+    good = gen_scenario(
+        setup=[],
+        action={"name": "t", "method": "GET", "path": "/accounts/nope/balance"},
+    )
+    ok, _ = only_spec_endpoints(check_case(), scenario_payload(good))
+    assert ok, "a literal id is on-spec, not an invented endpoint"
+
+
+def test_spec_check_catches_an_invented_endpoint():
+    from ecvt.eval_checks import only_spec_endpoints
+
+    for bad_action in (
+        {"name": "t", "method": "DELETE", "path": "/accounts/{src}"},
+        {"name": "t", "method": "POST", "path": "/accounts/{src}/freeze"},
+    ):
+        ok, detail = only_spec_endpoints(
+            check_case(), scenario_payload(gen_scenario(action=bad_action))
+        )
+        assert not ok
+        assert "off-spec" in detail
+
+
+def test_concurrency_check_needs_both_a_race_and_a_replay():
+    from ecvt.eval_checks import exercises_concurrency_and_repeat
+
+    flat = scenario_payload(gen_scenario("sc-1"), gen_scenario("sc-2"))
+    ok, detail = exercises_concurrency_and_repeat(check_case(), flat)
+    assert not ok
+    assert "concurrency > 1" in detail and "repeat > 1" in detail
+
+    race_only = scenario_payload(gen_scenario("sc-1", concurrency=5))
+    ok, detail = exercises_concurrency_and_repeat(check_case(), race_only)
+    assert not ok
+    assert "repeat > 1" in detail
+
+    both = scenario_payload(gen_scenario("sc-1", concurrency=5), gen_scenario("sc-2", repeat=3))
+    ok, _ = exercises_concurrency_and_repeat(check_case(), both)
+    assert ok
+
+
+def test_checks_report_an_empty_output_rather_than_crashing():
+    from ecvt.eval_checks import (
+        exercises_concurrency_and_repeat,
+        only_spec_endpoints,
+        placeholders_are_bound,
+    )
+
+    empty = Invocation(text="declined", error="no spec supplied")
+    for fn in (placeholders_are_bound, only_spec_endpoints, exercises_concurrency_and_repeat):
+        ok, detail = fn(check_case(), empty)
+        assert not ok
+        assert "no scenarios" in detail
+
+
+def test_python_check_scorer_wires_the_dotted_path():
+    from ecvt.evals import score_python_check
+
+    result = score_python_check(
+        check_case(check="ecvt.eval_checks.placeholders_are_bound"),
+        scenario_payload(gen_scenario()),
+    )
+    assert result.passed
+
+    broken = score_python_check(check_case(check="ecvt.eval_checks.nope"), scenario_payload())
+    assert not broken.passed
+    assert "cannot import" in broken.detail
+
+
+def test_generator_asks_for_concurrency_and_repeat():
+    """The one real finding of the live run: every scenario came back flat."""
+    from agents.a03_scenario_generator.agent import build_user_prompt, load_system_prompt
+    from ecvt.openapi_reader import read_openapi
+
+    system = load_system_prompt()
+    assert "concurrency" in system and "repeat" in system
+    user = build_user_prompt(read_openapi("examples/wallet-api/openapi.json"), "t")
+    assert "concurrency" in user and "repeat" in user
+
+
+def test_mechanical_claims_are_not_left_to_the_judge():
+    """These three are decidable by parsing, so they must not cost a call."""
+    cases = {c.id: c for c in load_dataset(DATASETS["a03_scenario_generator"])[0]}
+    for case_id in ("sg-002", "sg-003", "sg-005"):
+        assert cases[case_id].scoring == "python-check", f"{case_id} should be code-checked"
+        assert cases[case_id].check
