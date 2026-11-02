@@ -294,7 +294,13 @@ def combine(
     else:
         verdict = Verdict.PASS
 
-    failed = [c for d in dimensions for c in d.checks if c.verdict is Verdict.FAIL]
+    # Only rule checks are scanned for the summary: their `detail` is written
+    # as an explanation ("returned [200], which a correct implementation should
+    # not"), whereas a judge check's `detail` is the invariant text itself —
+    # which reads as a statement of correct behaviour, not as a finding. For a
+    # judge failure the rationale is the explanation.
+    rule = next((d for d in dimensions if d.dimension is Dimension.RULE), None)
+    failed = [c for c in (rule.checks if rule else []) if c.verdict is Verdict.FAIL]
     judge = next((d for d in dimensions if d.dimension is Dimension.JUDGE), None)
 
     if verdict is Verdict.FAIL and failed:
