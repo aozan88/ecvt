@@ -31,54 +31,124 @@ class _MessagesClient(Protocol):
 
 
 @dataclass
-class Usage:
-    """Token counts for one or more calls, plus cost when pricing is known."""
+class Tokens:
+    """Token counts for one pricing tier."""
 
-    model: str
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     calls: int = 0
 
-    def add_response(self, response: Any) -> None:
-        usage = getattr(response, "usage", None)
-        self.calls += 1
-        if usage is None:
-            return
-        self.input_tokens += getattr(usage, "input_tokens", 0) or 0
-        self.output_tokens += getattr(usage, "output_tokens", 0) or 0
-        self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
-        self.cache_write_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+    @property
+    def prompt_tokens(self) -> int:
+        """Everything billed as prompt — what the length tier is decided on."""
+        return self.input_tokens + self.cache_read_tokens + self.cache_write_tokens
 
     @property
     def total_tokens(self) -> int:
+        return self.prompt_tokens + self.output_tokens
+
+    def cost_usd(self, prices: dict[str, Any]) -> float:
         return (
-            self.input_tokens
-            + self.output_tokens
-            + self.cache_read_tokens
-            + self.cache_write_tokens
+            self.input_tokens * float(prices.get("input", 0.0))
+            + self.output_tokens * float(prices.get("output", 0.0))
+            + self.cache_read_tokens * float(prices.get("cache_read", 0.0))
+            + self.cache_write_tokens * float(prices.get("cache_write", 0.0))
+        ) / 1_000_000
+
+
+@dataclass
+class Usage:
+    """Token counts across calls, split by pricing tier, plus cost.
+
+    Anthropic prices some models in two tiers: a request whose prompt exceeds a
+    threshold is billed at higher rates (Haiku 5.5: 5x above 100k). The tier is
+    a property of each individual request, so counts are bucketed per call as
+    they arrive — summing first and pricing later would bill a run of small
+    calls at the long-prompt rate as soon as the totals crossed the line.
+    """
+
+    model: str
+    standard: Tokens = field(default_factory=Tokens)
+    long_prompt: Tokens = field(default_factory=Tokens)
+
+    def add_response(self, response: Any) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            self.standard.calls += 1
+            return
+
+        call = Tokens(
+            input_tokens=getattr(usage, "input_tokens", 0) or 0,
+            output_tokens=getattr(usage, "output_tokens", 0) or 0,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            calls=1,
         )
+        bucket = (
+            self.long_prompt
+            if call.prompt_tokens > self._long_prompt_threshold()
+            else self.standard
+        )
+        bucket.input_tokens += call.input_tokens
+        bucket.output_tokens += call.output_tokens
+        bucket.cache_read_tokens += call.cache_read_tokens
+        bucket.cache_write_tokens += call.cache_write_tokens
+        bucket.calls += 1
+
+    def _long_prompt_threshold(self) -> float:
+        prices = _load_pricing().get(self.model) or {}
+        threshold = prices.get("long_prompt_threshold")
+        if isinstance(threshold, (int, float)) and threshold > 0:
+            return float(threshold)
+        return float("inf")
+
+    @property
+    def calls(self) -> int:
+        return self.standard.calls + self.long_prompt.calls
+
+    @property
+    def input_tokens(self) -> int:
+        return self.standard.input_tokens + self.long_prompt.input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.standard.output_tokens + self.long_prompt.output_tokens
+
+    @property
+    def cache_read_tokens(self) -> int:
+        return self.standard.cache_read_tokens + self.long_prompt.cache_read_tokens
+
+    @property
+    def cache_write_tokens(self) -> int:
+        return self.standard.cache_write_tokens + self.long_prompt.cache_write_tokens
+
+    @property
+    def total_tokens(self) -> int:
+        return self.standard.total_tokens + self.long_prompt.total_tokens
 
     def cost_usd(self) -> float | None:
         """Cost in USD, or None when this model has no price configured.
 
-        Prices live in `config/pricing.json` (USD per million tokens) and ship
-        empty on purpose: a guessed price in a cost log is worse than a blank.
+        Prices live in `config/pricing.json`, in USD per million tokens. A model
+        with no entry reports None rather than 0.0 — an unpriced model is
+        unknown, not free.
         """
         prices = _load_pricing().get(self.model)
         if not prices:
             return None
-        per_million = (
-            self.input_tokens * prices.get("input", 0.0)
-            + self.output_tokens * prices.get("output", 0.0)
-            + self.cache_read_tokens * prices.get("cache_read", 0.0)
-            + self.cache_write_tokens * prices.get("cache_write", 0.0)
-        )
-        return round(per_million / 1_000_000, 6)
+
+        cost = self.standard.cost_usd(prices)
+        if self.long_prompt.calls:
+            long_prices = prices.get("long_prompt")
+            if not isinstance(long_prices, dict) or not long_prices:
+                return None  # priced model, but not for the tier actually used
+            cost += self.long_prompt.cost_usd(long_prices)
+        return round(cost, 6)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "model": self.model,
             "calls": self.calls,
             "input_tokens": self.input_tokens,
@@ -88,6 +158,9 @@ class Usage:
             "total_tokens": self.total_tokens,
             "cost_usd": self.cost_usd(),
         }
+        if self.long_prompt.calls:
+            data["long_prompt_calls"] = self.long_prompt.calls
+        return data
 
 
 def _load_pricing() -> dict[str, dict[str, float]]:
