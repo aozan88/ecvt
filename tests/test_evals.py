@@ -246,15 +246,18 @@ def test_judge_failure_is_a_fail_not_a_crash():
     assert "no verdict" in result.detail
 
 
-def test_judge_truncates_a_huge_output():
+def test_judge_sends_a_large_output_whole():
+    """Within budget the grader sees all of it — no silent truncation."""
     fake = FakeClient([grade(True)])
     score_llm_judge(
         case(scoring="llm-judge", rubric="r"),
         Invocation(text="x" * 20000),
         client=fake,
-        max_chars=500,
+        max_chars=200_000,
     )
-    assert "truncated" in fake.messages.calls[0]["messages"][0]["content"]
+    sent = fake.messages.calls[0]["messages"][0]["content"]
+    assert sent.count("x") == 20000
+    assert "truncated" not in sent
 
 
 # --- report semantics ------------------------------------------------------
@@ -384,3 +387,83 @@ def _minimal_scenario() -> dict[str, Any]:
         "action": {"name": "a", "method": "GET", "path": "/accounts/1/balance"},
         "expectation": {"expected_status": [200], "expected_behavior": "b"},
     }
+
+
+# --- harness honesty -------------------------------------------------------
+
+
+def test_oversized_output_is_unmeasurable_not_a_failure():
+    """A truncated output grades the harness, not the agent.
+
+    The first live run capped a 19k-character ScenarioSet at 6k; the grader
+    correctly said it could not verify anything, and that came out as seven
+    FAILs against an agent that had done nothing wrong.
+    """
+    from ecvt.evals import Unmeasurable
+
+    with pytest.raises(Unmeasurable, match="over the"):
+        score_llm_judge(
+            case(scoring="llm-judge", rubric="r"),
+            Invocation(text="x" * 5000),
+            client=FakeClient([grade(True)]),
+            max_chars=1000,
+        )
+
+
+def test_unmeasurable_case_is_skipped_by_the_runner(tmp_path, monkeypatch):
+    from ecvt.evals import Unmeasurable
+
+    path = tmp_path / "a05_execution" / "eval_dataset.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "id": "big",
+                "input": {"scenario": _minimal_scenario()},
+                "category": "happy-path",
+                "scoring": "llm-judge",
+                "rubric": "r",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def too_big(*_a: Any, **_k: Any) -> None:
+        raise Unmeasurable("output is 19000 chars, over the 6000 the grader is given")
+
+    monkeypatch.setattr("ecvt.evals.score_llm_judge", too_big)
+    report = run_dataset(path, ctx=AdapterContext(base_url="http://127.0.0.1:9"))
+
+    assert report.results == [], "an unmeasurable case must not count as a failure"
+    assert "unmeasurable" in report.skipped[0][1]
+    assert not report.meets_bar
+
+
+def test_generator_output_fits_the_grader_budget():
+    """A full ScenarioSet must fit, or every a03 judge case is unmeasurable."""
+    import inspect
+
+    from ecvt.evals import score_llm_judge as judge
+
+    budget = inspect.signature(judge).parameters["max_chars"].default
+    # 14 scenarios measured at ~19k characters; leave room for growth.
+    assert budget >= 100_000, f"grader budget {budget} is too small for a ScenarioSet"
+
+
+@pytest.mark.parametrize("agent", sorted(DATASETS))
+def test_rubrics_assert_something_about_the_output(agent: str):
+    """A rubric must be a claim about the output, not a narration of ECVT.
+
+    Rubrics that explained the semantics ("Rules alone are inconclusive; the
+    judge resolves it...") made the grader evaluate the explanation: three
+    cases returned false while the reason said the condition held.
+    """
+    for item in load_dataset(DATASETS[agent])[0]:
+        if item.scoring != "llm-judge":
+            continue
+        assert item.rubric
+        assert "rubric" not in item.rubric.lower(), (
+            f"{item.id} refers to itself, which flips the grader's polarity"
+        )
+        assert len(item.rubric) <= 400, f"{item.id} rubric is an essay, not an assertion"
