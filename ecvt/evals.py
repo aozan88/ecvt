@@ -10,9 +10,15 @@ model-based evaluation:
 
 - `schema-valid`   the output validates against a named model. Free, exact.
 - `keyword-match`  required strings appear in the output. Free, blunt.
+- `python-check`   a named function decides it. Free and exact, for facts a
+                   parser can settle: is every placeholder bound, is every
+                   endpoint in the spec. Asking a model these spends money to
+                   add noise — the grader rambled about which scenario
+                   violated what, and once called spec fields "invented".
 - `llm-judge`      a model scores the output against the case's rubric.
-                   Costs a call, so it is for claims the first two cannot
-                   express ("does it avoid stating a verdict?").
+                   Costs a call, so it is for claims the others cannot
+                   express ("does this expectation describe correct behaviour
+                   or the defect?").
 
 Each agent needs an **adapter**: the function that turns a case's `input` into
 an actual invocation of that agent. Without one a dataset is prose, and prose
@@ -40,7 +46,7 @@ from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, Usage, structu
 PASS_THRESHOLD = 0.80
 MIN_CASES = 10
 REQUIRED_FIELDS = ("id", "input", "category", "scoring")
-KNOWN_SCORING = ("schema-valid", "keyword-match", "llm-judge")
+KNOWN_SCORING = ("schema-valid", "keyword-match", "python-check", "llm-judge")
 
 JUDGE_SYSTEM = """\
 You grade one test of an AI agent against a rubric.
@@ -54,6 +60,8 @@ Rules:
   do not fail an output for something the rubric does not ask for.
 - A rubric that says the agent must decline something is satisfied when the
   output declines it — an empty or refusing output can be a pass.
+- Write `reason` first, then `satisfies_rubric`. The verdict must follow the
+  reasoning you just wrote, not contradict it.
 - Answer about the OUTPUT, not about the rubric. `true` means the output does
   what the rubric asks; `false` means it does not. Never return `false` while
   explaining that the rubric's condition holds.
@@ -81,6 +89,9 @@ class EvalCase:
     scoring: str
     expected_schema: str | None = None
     expected_keywords: list[str] = field(default_factory=list)
+    check: str | None = None
+    """Dotted path to a `(case, invocation) -> (passed, detail)` function."""
+
     rubric: str | None = None
 
 
@@ -206,6 +217,7 @@ def load_dataset(path: str | Path) -> tuple[list[EvalCase], list[str]]:
                 scoring=str(raw["scoring"]),
                 expected_schema=raw.get("expected_schema"),
                 expected_keywords=list(raw.get("expected_keywords") or []),
+                check=raw.get("check"),
                 rubric=raw.get("rubric"),
             )
         )
@@ -258,6 +270,23 @@ def score_keyword_match(case: EvalCase, inv: Invocation) -> CaseResult:
     return result(True, f"found all {len(case.expected_keywords)} keywords")
 
 
+def score_python_check(case: EvalCase, inv: Invocation) -> CaseResult:
+    def result(passed: bool, detail: str) -> CaseResult:
+        return CaseResult(case.id, case.scoring, case.category, passed, detail)
+
+    if not case.check:
+        return result(False, "case has no check")
+    try:
+        fn = _import_model(case.check)
+    except (ImportError, AttributeError, ValueError) as exc:
+        return result(False, f"cannot import {case.check}: {exc}")
+    try:
+        passed, detail = fn(case, inv)
+    except Exception as exc:  # noqa: BLE001 — a broken check is a failed check
+        return result(False, f"{case.check} raised {type(exc).__name__}: {exc}"[:300])
+    return result(bool(passed), str(detail)[:300])
+
+
 def score_llm_judge(
     case: EvalCase,
     inv: Invocation,
@@ -281,19 +310,31 @@ def score_llm_judge(
             "grading a fragment would score the truncation"
         )
 
+    # `reason` is declared FIRST on purpose. With the boolean first, the model
+    # committed to a verdict and then reasoned — and twice talked itself round
+    # without being able to revise it: "wait—re-evaluating: the output contains
+    # only observations" (returned false) and "the rubric's conditions are met
+    # and it should pass" (returned false). Reasoning before the verdict lets
+    # the conclusion follow the argument instead of preceding it.
     tool = {
         "name": "grade",
         "description": "Return the grade for this one case. Use it for every response.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "satisfies_rubric": {"type": "boolean"},
                 "reason": {
                     "type": "string",
-                    "description": "One sentence, quoting what decided it.",
+                    "description": (
+                        "Work it out here, quoting the part of the output that decides "
+                        "it. Write this before the verdict."
+                    ),
+                },
+                "satisfies_rubric": {
+                    "type": "boolean",
+                    "description": "Your conclusion, consistent with the reason above.",
                 },
             },
-            "required": ["satisfies_rubric", "reason"],
+            "required": ["reason", "satisfies_rubric"],
         },
     }
     user = (
@@ -366,6 +407,14 @@ def _render(obj: Any) -> str:
 def adapt_scenario_generator(case: EvalCase, ctx: AdapterContext) -> Invocation:
     """Run the Scenario Generator on this case's spec."""
     from agents.a03_scenario_generator.agent import generate_scenario_set
+
+    if ctx.client is None and not os.environ.get("ANTHROPIC_API_KEY"):
+        # This adapter calls the model to produce the output being scored, so
+        # --skip-judge does not help here: the agent itself needs the key.
+        raise Unmeasurable(
+            "generating scenarios needs ANTHROPIC_API_KEY; --skip-judge only "
+            "skips the grader, not the agent under test"
+        )
 
     spec = case.input.get("spec")
     if not spec:
@@ -510,6 +559,9 @@ def run_dataset(
 
         try:
             inv = adapter(case, ctx)
+        except Unmeasurable as exc:
+            report.skipped.append((case.id, f"unmeasurable: {exc}"[:200]))
+            continue
         except Exception as exc:  # noqa: BLE001 — a broken case must not stop the run
             report.skipped.append((case.id, f"{type(exc).__name__}: {exc}"[:200]))
             continue
@@ -522,6 +574,8 @@ def run_dataset(
                 report.results.append(score_schema_valid(case, inv))
             elif case.scoring == "keyword-match":
                 report.results.append(score_keyword_match(case, inv))
+            elif case.scoring == "python-check":
+                report.results.append(score_python_check(case, inv))
             else:
                 report.results.append(
                     score_llm_judge(case, inv, client=ctx.client, model=ctx.model, usage=usage)
