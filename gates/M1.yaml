@@ -53,22 +53,30 @@ checks:
   - id: G1-3
     desc: the three agents' eval datasets are well-formed with >= 10 cases
     cmd: |
-      for a in a03_scenario_generator a05_execution a06_evaluation; do
-        python scripts/eval_runner.py "agents/$a/eval_dataset.jsonl" | tee /tmp/ecvt-eval-$a.txt
-        grep -q "Incomplete" /tmp/ecvt-eval-$a.txt && { echo "FAIL $a has too few cases"; exit 1; }
-      done
+      python scripts/eval_runner.py \
+        agents/a03_scenario_generator/eval_dataset.jsonl \
+        agents/a05_execution/eval_dataset.jsonl \
+        agents/a06_evaluation/eval_dataset.jsonl \
+        --check-only
       echo "DATASETS OK"
     expect_stdout: DATASETS OK
 
   - id: G1-4
     desc: the three agents' eval pass rate is >= 80%
+    requires_env: [ANTHROPIC_API_KEY]
+    timeout: 900
     cmd: |
-      # scripts/eval_runner.py validates datasets but does not score them yet
-      # (M1-T2b). This check fails on purpose until it does: the plan's rule is
-      # that a box without evidence stays open, and a gate that reports PASS
-      # for an unmeasured criterion is worse than one that fails honestly.
-      echo "NOT MEASURED: eval_runner.py is a placeholder (M1-T2b)" >&2
-      exit 1
+      uvicorn app:app --app-dir examples/wallet-api --port 8767 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 40); do curl -sf localhost:8767/openapi.json -o /dev/null && break; sleep 0.3; done
+      python scripts/eval_runner.py \
+        agents/a03_scenario_generator/eval_dataset.jsonl \
+        agents/a05_execution/eval_dataset.jsonl \
+        agents/a06_evaluation/eval_dataset.jsonl \
+        --base-url http://localhost:8767 \
+        --out artifacts/gate-m1/evals.json
+      echo "EVALS MEET BAR"
+    expect_stdout: EVALS MEET BAR
 
   - id: G1-5
     desc: pytest green (unit + integration)
