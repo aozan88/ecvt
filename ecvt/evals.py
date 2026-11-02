@@ -54,10 +54,23 @@ Rules:
   do not fail an output for something the rubric does not ask for.
 - A rubric that says the agent must decline something is satisfied when the
   output declines it — an empty or refusing output can be a pass.
-- When the output is too short, truncated or unrelated to tell, answer `false`
-  and say what was missing. Guessing defeats the measurement.
+- Answer about the OUTPUT, not about the rubric. `true` means the output does
+  what the rubric asks; `false` means it does not. Never return `false` while
+  explaining that the rubric's condition holds.
+- If the output is unrelated or too short to tell, answer `false` and say what
+  was missing. Guessing defeats the measurement.
 - Quote the part of the output that decided it.
 """
+
+
+class Unmeasurable(RuntimeError):
+    """The case could not be graded for a harness reason, not an agent one.
+
+    Raised so the runner records a skip rather than a failure: the first live
+    run truncated a 19k-character ScenarioSet at 6k and the grader correctly
+    reported it could not verify anything, which came out as seven FAILs
+    against an agent that had done nothing wrong.
+    """
 
 
 @dataclass
@@ -252,7 +265,7 @@ def score_llm_judge(
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
     usage: Usage | None = None,
-    max_chars: int = 6000,
+    max_chars: int = 200_000,
 ) -> CaseResult:
     def result(passed: bool, detail: str) -> CaseResult:
         return CaseResult(case.id, case.scoring, case.category, passed, detail)
@@ -262,7 +275,11 @@ def score_llm_judge(
 
     output = inv.text if not inv.error else f"[agent declined or failed] {inv.error}\n{inv.text}"
     if len(output) > max_chars:
-        output = output[:max_chars] + "\n…[truncated]"
+        # Grading a fragment measures the harness, not the agent.
+        raise Unmeasurable(
+            f"output is {len(output)} chars, over the {max_chars} the grader is given; "
+            "grading a fragment would score the truncation"
+        )
 
     tool = {
         "name": "grade",
@@ -509,6 +526,8 @@ def run_dataset(
                 report.results.append(
                     score_llm_judge(case, inv, client=ctx.client, model=ctx.model, usage=usage)
                 )
+        except Unmeasurable as exc:
+            report.skipped.append((case.id, f"unmeasurable: {exc}"[:200]))
         except Exception as exc:  # noqa: BLE001 — scoring must not kill the run either
             # Without this a missing API key took down the whole dataset,
             # including the cases that need no model at all.
