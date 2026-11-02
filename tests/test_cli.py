@@ -226,9 +226,11 @@ def test_run_with_record_writes_report_and_trend(
     live_target, scenarios_file, tmp_path, monkeypatch, capsys
 ):
     """One command produces the number, instead of a step you have to remember."""
-    trend = tmp_path / "catch-rate.md"
-    monkeypatch.setattr("ecvt.reporting.TREND_DOC", trend)
-    monkeypatch.setattr("ecvt.cli.TREND_DOC", trend)
+    # conftest already redirects both generated docs into tmp; read where.
+    from ecvt import reporting
+
+    trend = reporting.TREND_DOC
+    latest = reporting.LATEST_DOC
 
     out = tmp_path / "artifacts"
     code = main(
@@ -252,6 +254,12 @@ def test_run_with_record_writes_report_and_trend(
 
     assert trend.exists(), "--record must create the trend table"
     assert "# Catch rate over time" in trend.read_text(encoding="utf-8")
+
+    assert latest.exists(), "--record must also snapshot the full report"
+    snapshot = latest.read_text(encoding="utf-8")
+    assert "## Scenario results" in snapshot
+    assert "sc-overdraft" in snapshot
+
     assert "catch rate:" in capsys.readouterr().out
 
 

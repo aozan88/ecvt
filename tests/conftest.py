@@ -40,3 +40,20 @@ def wallet_module() -> Any:
 @pytest.fixture
 def wallet_app(wallet_module: Any) -> Any:
     return wallet_module.app
+
+
+@pytest.fixture(autouse=True)
+def _keep_generated_docs_out_of_the_repo(tmp_path_factory, monkeypatch):
+    """Redirect the committed report docs into tmp for every test.
+
+    `record_trend` and `record_latest` write into `docs/09-evaluation/` by
+    design. Twice now a test exercised them and left a generated file in the
+    working tree — once because a default argument captured the path at
+    import, once because a test redirected one doc and not the other.
+    Redirecting both for all tests removes the whole class of mistake; a test
+    that wants to check the real paths can assert on the constants.
+    """
+    scratch = tmp_path_factory.mktemp("generated-docs")
+    monkeypatch.setattr("ecvt.reporting.TREND_DOC", scratch / "catch-rate.md")
+    monkeypatch.setattr("ecvt.reporting.LATEST_DOC", scratch / "latest-run.md")
+    monkeypatch.setattr("ecvt.cli.TREND_DOC", scratch / "catch-rate.md")
