@@ -1,7 +1,28 @@
-{
-  "_comment": "DRAFT schema stub for execution. Iterate in Project 05.",
-  "execution_output": {
-    "type": "object",
-    "properties": {}
+[
+  {
+    "_draft": "SKELETON (M1-T4). In M1 the runner is called as code and needs no tool schema; this becomes real in M2 when the Manager dispatches Execution as a subagent. TODO: generate input_schema from ecvt.results.ExecutionRecord the way a03's tools.json is generated from ScenarioSetDraft, and add a sync test.",
+    "name": "execution_output",
+    "description": "Return the execution records for a ScenarioSet — one record per scenario, with every step's response. Use this tool for every response.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "description": "One ExecutionRecord per scenario, in the order the scenarios were given. TODO: replace with the generated ExecutionRecord schema.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scenario_id": { "type": "string" },
+              "outcome": {
+                "type": "string",
+                "enum": ["completed", "setup_failed", "action_error"]
+              }
+            },
+            "required": ["scenario_id", "outcome"]
+          }
+        }
+      },
+      "required": ["records"]
+    }
   }
-}
+]
