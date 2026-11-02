@@ -385,3 +385,41 @@ def test_record_latest_overwrites_rather_than_appending(tmp_path):
     text = doc.read_text(encoding="utf-8")
     assert "second run" in text
     assert "first run" not in text, "one file, replaced; history lives in git"
+
+
+# --- gate definition -------------------------------------------------------
+
+
+def test_m1_gate_covers_every_g1_criterion():
+    """The gate file must not quietly omit a criterion from the plan."""
+    import yaml
+
+    spec = yaml.safe_load(Path("gates/M1.yaml").read_text(encoding="utf-8"))
+    assert spec["gate"] == "G1" and spec["milestone"] == "M1"
+
+    descriptions = " ".join(c["desc"].lower() for c in spec["checks"])
+    for criterion in (
+        "one command",  # ecvt run finishes, exit 0
+        "7 categories",  # scenarios/executions/scores complete
+        "pass rate",  # three agents >= 80%
+        "pytest",  # unit + integration green
+        "catch rate",  # X/10 against ground truth
+        "tokens and cost",  # logged per run
+        "tag v0.3.0",  # release tag
+    ):
+        assert criterion in descriptions, f"G1 criterion not checked: {criterion}"
+
+    ids = [c["id"] for c in spec["checks"]]
+    assert len(ids) == len(set(ids)), "duplicate check ids"
+
+
+def test_gate_never_writes_into_docs():
+    """Running the gate must not dirty the repo: --report, never --record.
+
+    Comments are stripped first — the file explains the rule in a comment,
+    which would otherwise trip this check.
+    """
+    lines = Path("gates/M1.yaml").read_text(encoding="utf-8").splitlines()
+    commands = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+    assert "--record" not in commands
+    assert "--report" in commands
