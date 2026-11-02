@@ -61,6 +61,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("milestone", help="e.g. M0")
     parser.add_argument("--verbose", "-v", action="store_true", help="show detail column")
+    parser.add_argument(
+        "--format",
+        choices=("table", "plain"),
+        default="table",
+        help="table = markdown (default); plain = text that pastes into Google Docs.",
+    )
     args = parser.parse_args()
 
     gate_file = ROOT / "gates" / f"{args.milestone.upper()}.yaml"
@@ -69,18 +75,30 @@ def main() -> int:
         return 1
     spec = yaml.safe_load(gate_file.read_text(encoding="utf-8"))
 
-    print(f"Gate {spec['gate']} · {spec['milestone']}\n")
-    print(f"| ID | Check | Result | s |{' Detail |' if args.verbose else ''}")
-    print(f"|---|---|---|---|{'---|' if args.verbose else ''}")
-    results = []
+    rows = []
     for check in spec["checks"]:
         status, detail, secs = run_check(check)
-        results.append(status)
-        extra = f" {detail.replace('|', '/')} |" if args.verbose else ""
-        print(f"| {check['id']} | {check['desc']} | {status} | {secs:.1f} |{extra}")
+        rows.append((check["id"], check["desc"], status, secs, detail))
 
-    n_pass, n_fail, n_skip = (results.count(s) for s in ("PASS", "FAIL", "SKIP"))
-    verdict = "PASS" if n_pass == len(results) else ("FAIL" if n_fail else "INCOMPLETE")
+    if args.format == "table":
+        print(f"Gate {spec['gate']} · {spec['milestone']}\n")
+        print(f"| ID | Check | Result | s |{' Detail |' if args.verbose else ''}")
+        print(f"|---|---|---|---|{'---|' if args.verbose else ''}")
+        for cid, desc, status, secs, detail in rows:
+            extra = f" {detail.replace('|', '/')} |" if args.verbose else ""
+            print(f"| {cid} | {desc} | {status} | {secs:.1f} |{extra}")
+    else:
+        # Plain text pastes cleanly into Google Docs, where a markdown table
+        # arrives as a wall of pipe characters rather than a table.
+        print(f"Gate {spec['gate']} · {spec['milestone']}")
+        for cid, desc, status, secs, detail in rows:
+            print(f"  {status:4}  {cid}  {desc} ({secs:.1f}s)")
+            if args.verbose and detail:
+                print(f"            {detail}")
+
+    statuses = [r[2] for r in rows]
+    n_pass, n_fail, n_skip = (statuses.count(s) for s in ("PASS", "FAIL", "SKIP"))
+    verdict = "PASS" if n_pass == len(statuses) else ("FAIL" if n_fail else "INCOMPLETE")
     print(f"\n{spec['gate']}: {verdict} ({n_pass} pass · {n_fail} fail · {n_skip} skip)")
     return {"PASS": 0, "FAIL": 1}.get(verdict, 2)
 

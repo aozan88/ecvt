@@ -284,23 +284,79 @@ def test_missing_spec_raises_before_any_call():
 # --- usage accounting ------------------------------------------------------
 
 
-def test_usage_cost_is_none_without_pricing():
-    usage = Usage(model="claude-haiku-5-5", input_tokens=1000, output_tokens=500, calls=1)
+def record(usage: Usage, *, inp: int = 0, out: int = 0, cache_read: int = 0) -> Usage:
+    """Feed one fake API response into a Usage, as structured_call would."""
+    fake = FakeUsage(
+        input_tokens=inp,
+        output_tokens=out,
+        cache_read_input_tokens=cache_read,
+        cache_creation_input_tokens=0,
+    )
+    usage.add_response(FakeResponse(content=[], usage=fake))
+    return usage
+
+
+def write_pricing(monkeypatch, tmp_path, models: dict) -> None:
+    pricing = tmp_path / "pricing.json"
+    pricing.write_text(json.dumps({"models": models}), encoding="utf-8")
+    monkeypatch.setattr("ecvt.llm.PRICING_PATH", pricing)
+
+
+def test_usage_cost_is_none_for_unpriced_model(monkeypatch, tmp_path):
+    write_pricing(monkeypatch, tmp_path, {"other": {"input": 1.0}})
+    usage = record(Usage(model="unlisted"), inp=1000, out=500)
     assert usage.total_tokens == 1500
-    # config/pricing.json ships empty on purpose; cost stays unreported.
+    # An unpriced model is unknown, not free.
     assert usage.cost_usd() is None
     assert usage.as_dict()["total_tokens"] == 1500
 
 
 def test_usage_cost_computed_when_pricing_present(monkeypatch, tmp_path):
-    pricing = tmp_path / "pricing.json"
-    pricing.write_text(
-        json.dumps({"models": {"m": {"input": 1.0, "output": 5.0}}}), encoding="utf-8"
-    )
-    monkeypatch.setattr("ecvt.llm.PRICING_PATH", pricing)
-
-    usage = Usage(model="m", input_tokens=1_000_000, output_tokens=200_000, calls=1)
+    write_pricing(monkeypatch, tmp_path, {"m": {"input": 1.0, "output": 5.0}})
+    usage = record(Usage(model="m"), inp=1_000_000, out=200_000)
     assert usage.cost_usd() == pytest.approx(2.0)
+
+
+def test_real_pricing_file_prices_haiku():
+    """config/pricing.json is filled in, so runs log a cost and not null."""
+    usage = record(Usage(model="claude-haiku-5-5"), inp=1000, out=1000, cache_read=1000)
+    cost = usage.cost_usd()
+    assert cost is not None and cost > 0
+    assert "cost_usd" in usage.as_dict()
+
+
+def test_long_prompt_tier_applied_per_call(monkeypatch, tmp_path):
+    """Two small calls stay on the cheap tier even when their sum crosses it."""
+    write_pricing(
+        monkeypatch,
+        tmp_path,
+        {
+            "m": {
+                "input": 1.0,
+                "output": 1.0,
+                "long_prompt_threshold": 1000,
+                "long_prompt": {"input": 5.0, "output": 5.0},
+            }
+        },
+    )
+
+    small = Usage(model="m")
+    record(small, inp=600, out=0)
+    record(small, inp=600, out=0)
+    assert small.long_prompt.calls == 0
+    assert small.cost_usd() == pytest.approx(1200 / 1_000_000)
+
+    big = record(Usage(model="m"), inp=1200, out=0)
+    assert big.long_prompt.calls == 1
+    assert big.cost_usd() == pytest.approx(1200 * 5 / 1_000_000)
+    assert big.as_dict()["long_prompt_calls"] == 1
+
+
+def test_long_prompt_without_tier_prices_reports_none(monkeypatch, tmp_path):
+    write_pricing(monkeypatch, tmp_path, {"m": {"input": 1.0, "long_prompt_threshold": 100}})
+    usage = record(Usage(model="m"), inp=500, out=0)
+    assert usage.long_prompt.calls == 1
+    assert usage.cost_usd() is None  # priced model, but not for the tier used
 
 
 # --- CLI -------------------------------------------------------------------
