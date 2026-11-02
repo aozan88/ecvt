@@ -63,6 +63,24 @@ def test_tool_schema_from_pydantic():
     assert "invariants" in schema["properties"]
 
 
+def test_committed_tools_json_matches_generated_schema():
+    from pathlib import Path
+
+    committed = json.loads(
+        Path("agents/a06_evaluation/tools.json").read_text(encoding="utf-8")
+    )
+    assert committed == [ev.build_tool()], (
+        "tools.json is stale — regenerate it from JudgeOutput.model_json_schema()"
+    )
+
+
+def test_skill_within_page_limit():
+    from pathlib import Path
+
+    lines = Path("agents/a06_evaluation/SKILL.md").read_text(encoding="utf-8").splitlines()
+    assert len(lines) <= 240, f"SKILL.md is {len(lines)} lines (max 3 pages)"
+
+
 async def test_observation_carries_numbers_and_no_ground_truth(client, config):
     scenario = build(
         "sc-overdraft",

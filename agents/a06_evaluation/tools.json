@@ -1,7 +1,72 @@
-{
-  "_comment": "DRAFT schema stub for evaluation. Iterate in Project 06.",
-  "evaluation_output": {
-    "type": "object",
-    "properties": {}
+[
+  {
+    "name": "evaluation_judge_output",
+    "description": "Return the judgement for one scenario. Use this tool for every response: it is the only way to deliver a verdict.",
+    "input_schema": {
+      "$defs": {
+        "JudgeVerdict": {
+          "additionalProperties": false,
+          "description": "One invariant, judged.",
+          "properties": {
+            "invariant": {
+              "description": "The invariant text, copied verbatim.",
+              "title": "Invariant",
+              "type": "string"
+            },
+            "verdict": {
+              "$ref": "#/$defs/Verdict",
+              "description": "pass, fail, or inconclusive."
+            },
+            "evidence": {
+              "description": "The specific figure or response from the observation that settles it.",
+              "title": "Evidence",
+              "type": "string"
+            }
+          },
+          "required": [
+            "invariant",
+            "verdict",
+            "evidence"
+          ],
+          "title": "JudgeVerdict",
+          "type": "object"
+        },
+        "Verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "inconclusive",
+            "not_run"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "$ref": "#/$defs/Verdict",
+          "description": "The scenario as a whole: pass, fail or inconclusive."
+        },
+        "rationale": {
+          "description": "One or two sentences naming the evidence used.",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "invariants": {
+          "description": "One entry per stated invariant.",
+          "items": {
+            "$ref": "#/$defs/JudgeVerdict"
+          },
+          "title": "Invariants",
+          "type": "array"
+        }
+      },
+      "required": [
+        "verdict",
+        "rationale"
+      ],
+      "type": "object"
+    }
   }
-}
+]
