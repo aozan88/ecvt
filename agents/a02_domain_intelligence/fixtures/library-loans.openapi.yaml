@@ -1,0 +1,120 @@
+# a02 eval fixture — domain-transfer case (di-002).
+# Deliberately not wallet/finance. Ground truth for the rubric lives in eval_dataset.jsonl, not here.
+openapi: 3.0.3
+info:
+  title: Library Loans API
+  version: 0.1.0
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Member:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: string, readOnly: true}
+        name: {type: string, minLength: 1, maxLength: 80}
+        email: {type: string, format: email}
+    Book:
+      type: object
+      required: [id, title, availableCopies]
+      properties:
+        id: {type: string, readOnly: true}
+        title: {type: string}
+        availableCopies:
+          type: integer
+          description: Number of copies currently on the shelf.
+    NewLoan:
+      type: object
+      required: [bookId, memberId, dueDate]
+      properties:
+        bookId: {type: string}
+        memberId: {type: string}
+        dueDate: {type: string, format: date}
+    Loan:
+      type: object
+      required: [id, bookId, memberId, status, dueDate, renewals]
+      properties:
+        id: {type: string, readOnly: true}
+        bookId: {type: string}
+        memberId: {type: string}
+        status:
+          type: string
+          enum: [active, returned, overdue]
+          readOnly: true
+        dueDate: {type: string, format: date}
+        renewals:
+          type: integer
+          minimum: 0
+          maximum: 3
+          readOnly: true
+          description: A loan can be renewed at most twice.
+paths:
+  /members:
+    post:
+      operationId: createMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Member'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Member'}
+  /books/{bookId}:
+    get:
+      operationId: getBook
+      parameters:
+        - {name: bookId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Book'}
+        '404': {description: Not found}
+  /loans:
+    post:
+      operationId: createLoan
+      description: Lends a book to a member. A member may hold at most 5 active loans.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NewLoan'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Loan'}
+        '409': {description: Book not available}
+  /loans/{loanId}/renew:
+    post:
+      operationId: renewLoan
+      parameters:
+        - {name: loanId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Renewed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Loan'}
+  /loans/{loanId}/return:
+    post:
+      operationId: returnLoan
+      parameters:
+        - {name: loanId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Returned
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Loan'}
