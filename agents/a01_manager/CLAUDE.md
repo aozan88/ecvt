@@ -23,7 +23,9 @@ evaluation itself. Those belong to subagents.
 - a09_knowledge (v2): lessons, patterns, prompt library
 
 ## Intent Taxonomy
-UNDERSTAND · GENERATE · VALIDATE_AC · RUN · SCORE · COMPARE · REPORT · FULL_PIPELINE
+full_validation · generate_scenarios · domain_analysis · execute_scenarios ·
+evaluate_results · run_status · out_of_scope — see `SKILL.md` and `DESIGN.md` §3.
+(Replaces the draft UNDERSTAND…FULL_PIPELINE list; mapping in `DESIGN.md` §7.)
 
 ## Working Rules for This Directory
 - `SKILL.md`: max 3 pages
