@@ -9,15 +9,24 @@ IDs: `Dnn` day (D00 = 22 Oct 2026) · `Mx-Tn` milestone task · `Gx` gate ·
 `ADR nnnn` decision in `docs/11-decisions/`. A milestone closes only when its
 gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 
-## Status (export 2026-11-02 · D11)
+## Status (export 2026-11-23 · D32)
 
 - **M0 closed.** G0 PASS, tag `v0.0.1`.
-- **M1 nearly closed.** T1–T8 done; T9 open on the tag `v0.3.0` (G1-8).
-  The three agents' evals read a03 90% / a05 100% / a06 100% against the 80%
-  bar; catch rate 8/10.
-- **Ahead of plan** on M1 (T9 was dated D15 · 6 Nov) because the code was
+- **M1 closed.** T1–T9 done; tag `v0.3.0` on `main`. The three agents' evals
+  read a03 90% / a05 100% / a06 100% against the 80% bar; catch rate 8/10.
+  `gate_check.py M1` in a keyless container reads INCOMPLETE (3 PASS · 0 FAIL
+  · 5 SKIP) — the five skips need a live run (API key + wallet-api up).
+- **M2 open.** a01 Manager + a02 Domain Intelligence code is on
+  `feature/manager` (PR #26, draft, not merged). Remaining: the 8 skipped
+  tests (5 routing, 3 domain contract), the `_draft` cases in a02's
+  `eval_dataset.jsonl` (di-007…012), `manager.md`, then `gates/M2.yaml` and
+  tag `v0.5.0`. Planned D16–D29 (7–20 Nov) → behind plan.
+- **Exam week D30–D36** (CCA-F 26 Nov): Master Plan v7 allows ECVT bugfix
+  only, so M2 close-out resumes at D37 (28 Nov) alongside M3 start.
+- **M1 was ahead of plan** (T9 was dated D15 · 6 Nov) because the code was
   written for Ozan rather than by him, and the prompt-iteration days
-  (D04–D06, D09, D12) were spent on the eval harness instead.
+  (D04–D06, D09, D12) were spent on the eval harness instead. M2 inverts
+  that: the tests and eval cases are Ozan's to write by hand.
 
 ## Milestone map
 
@@ -67,7 +76,7 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 | M1-T6 | Evaluation 5 files + 15 cases (5 rule, 5 judge, 5 hybrid) | D12 | ✅ a06 eval 100% |
 | M1-T7 | Chain + CLI: `ecvt run --target examples/wallet-api` | D13 | ✅ `ecvt/cli.py` |
 | M1-T8 | pytest, structured log, token/cost log, first X/10 | D14 | ✅ `run.json`; catch rate 8/10 |
-| M1-T9 | Gate G1 + CHANGELOG + tag v0.3.0 | D15 | 🔄 G1-5, G1-8 open |
+| M1-T9 | Gate G1 + CHANGELOG + tag v0.3.0 | D15 | ✅ `v0.3.0` on `main`; G1-5 PASS (197 passed · 8 skipped), G1-8 PASS |
 
 ### Gate G1
 
@@ -77,7 +86,8 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 - [x] pytest green (unit + integration) — 197 tests; the Codespace's 44 errors were a missing `pytest-asyncio`, now declared in `pyproject.toml` and guarded in `conftest.py`
 - [x] Report states bugs caught vs ground truth (X/10); measured, no target — 8/10
 - [x] Tokens and cost logged per run
-- [ ] `gate_check.py M1` PASS + tag v0.3.0
+- [x] `gate_check.py M1` PASS + tag v0.3.0 — tag cut on `main`; a keyless
+  container reads INCOMPLETE because G1-1/2/4/6/7 skip without a live target
 
 ## M2 / M3 (summary)
 
@@ -88,6 +98,18 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
   Dev + Business report; n8n webhook; landing + video. Gate G3, v1.0.0.
 
 Full task lists and gates: Master Plan v7.
+
+### M2 open items (branch `feature/manager`, PR #26 draft)
+
+| Item | Where | Status |
+|---|---|---|
+| a01/a02 code (schema, prompt, tools, intent taxonomy, pipeline state) | `agents/a01_manager`, `agents/a02_domain_intelligence` | ✅ |
+| Manager routing tests (5) | `tests/test_manager_routing.py` | ⬜ skipped, Ozan writes |
+| DomainModel contract tests (3 + A/B payload choice) | `tests/test_domain_model_contract.py` | ⬜ skipped, Ozan writes |
+| a02 eval cases di-007…012 (`_draft` → case) | `agents/a02_domain_intelligence/eval_dataset.jsonl` | ⬜ 1 of 7 written (di-006) |
+| Manager agent spec, 8 sections | `docs/03-agents/manager.md` | ⬜ TODO + EXAMPLE blocks only |
+| Live eval ≥ 80% → then merge PR #26 | — | ⬜ merge blocked on this |
+| `gates/M2.yaml` + G2 + tag `v0.5.0` | `gates/` | ⬜ |
 
 ## Release gate notes
 
