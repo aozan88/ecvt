@@ -1,4 +1,4 @@
-"""DomainModel wire contract — a02_domain_intelligence/schema.py.
+"""DomainModel wire contract — agents/a02_domain_intelligence/schema.py.
 
 Hand-written by Ozan (course practice: Accessing Claude with the API › Structured data).
 No LLM and no network: only the Pydantic contract the model's tool call must satisfy.
@@ -8,51 +8,89 @@ What each test proves (one sentence from the lesson):
   2. `extra="forbid"`: a key the schema does not know is rejected, not silently dropped.
   3. No defaults: a required key that is missing is rejected, never filled in.
 
-Remove the `pytest.skip(...)` line of a test once its body is written.
+How to work through this file
+  - Uncomment the imports below as soon as a test uses them (ruff fails on unused imports).
+  - Write `valid_payload()` first; all three tests use it.
+  - In each test, delete the `pytest.skip(...)` line, then write the body.
+  - Run only this file:  pytest -q tests/test_domain_model_contract.py
+  - Done when: 3 passed, 0 skipped, `ruff check .` clean.
 """
 
 from __future__ import annotations
 
+import copy  # noqa: F401  (used by tests 2 and 3: copy.deepcopy(valid_payload()))
+
 import pytest
 
-# TODO(1): import DomainModel from agents.a02_domain_intelligence.schema
-# TODO(1): import ValidationError from pydantic (tests 2 and 3 expect it)
+# Uncomment when first used:
+# from pydantic import ValidationError
+# from agents.a02_domain_intelligence.schema import DomainModel
 
 
 def valid_payload() -> dict:
-    """A DomainModel payload that passes validation.
+    """Return a DomainModel payload that passes validation.
 
-    TODO(0): return a known-good payload. Two options, pick one:
-      a) Parse the parcel few-shot from agents/a02_domain_intelligence/system_prompt.md:
-         the JSON after the line "emit_domain_model:" and before "</output>"
-         (first <example> block only).
-      b) Write a minimal dict by hand: one entity, one operation, and
-         empty workflows / rules / gaps / glossary.
-    Hint: without `context=` the spec-bound checks (coverage, evidence pointers)
+    Pick ONE option, then delete the other and the `raise` line.
+
+    Option A — reuse the parcel few-shot from the system prompt (least typing):
+        The JSON sits in agents/a02_domain_intelligence/system_prompt.md, in the FIRST
+        <example> block, after the line "emit_domain_model:" and before "</output>".
+
+        Example of the pattern (adapt it, do not copy blindly):
+            from pathlib import Path
+            import json
+            text = Path("agents/a02_domain_intelligence/system_prompt.md").read_text("utf-8")
+            start = text.index("emit_domain_model:") + len("emit_domain_model:")
+            end = text.index("</output>", start)
+            return json.loads(text[start:end])
+
+        Bonus: this also proves the few-shot in the prompt is itself schema-valid.
+
+    Option B — write the smallest dict by hand (best for learning the contract):
+        Top-level keys: entities, operations, workflows, rules, gaps, glossary.
+        Start with:   {"entities": [], "operations": [ {...one operation...} ],
+                       "workflows": [], "rules": [], "gaps": [], "glossary": []}
+        Then run test 1 and read each ValidationError: it tells you the next missing key.
+        Look at the parcel operation "create_parcel" in system_prompt.md for the shape.
+        Question to answer for yourself: if idempotency is "not_specified", why does
+        validation demand a gap? (schema.py docstring, contract rule 3)
+
+    Note: without `context=...` the spec-bound checks (coverage, evidence pointers)
     do not run, so the payload needs no OpenAPI file.
-    Question to answer for yourself: why does option (b) still need a gap
-    if the operation's idempotency is "not_specified"? (schema.py, contract rule 3)
     """
-    raise NotImplementedError
+    raise NotImplementedError("TODO: pick option A or B")
 
 
 def test_valid_payload_is_accepted():
     pytest.skip("TODO: write me")
-    # TODO: DomainModel.model_validate(valid_payload()) does not raise
-    # TODO: assert on one field of the result, e.g. the first operation id
+    # Pattern:
+    #   model = DomainModel.model_validate(valid_payload())
+    #   assert model.operations[0].id == "<the id you expect>"
+    # One assert on a real field is enough; the point is "no exception".
 
 
 def test_unknown_key_is_rejected():
     pytest.skip("TODO: write me")
-    # TODO: copy valid_payload(), add an unknown top-level key (e.g. "notes")
-    # TODO: pytest.raises(ValidationError) around model_validate
-    # TODO: assert the error type is "extra_forbidden" (exc.value.errors()[0]["type"])
-    # Bonus: repeat one level down — an unknown key inside operations[0]
+    # Pattern:
+    #   payload = copy.deepcopy(valid_payload())
+    #   payload["notes"] = "the model added this on its own"
+    #   with pytest.raises(ValidationError) as exc:
+    #       DomainModel.model_validate(payload)
+    #   assert exc.value.errors()[0]["type"] == "extra_forbidden"
+    #
+    # Bonus (one level down): add an unknown key inside payload["operations"][0]
+    # and assert the error's "loc" points there, e.g. ("operations", 0, "<your key>").
 
 
 def test_missing_required_key_is_rejected():
     pytest.skip("TODO: write me")
-    # TODO: copy valid_payload(), delete a required key (e.g. "glossary")
-    # TODO: pytest.raises(ValidationError); assert the error type is "missing"
-    # Bonus: delete a nested required-nullable key (one typed `str | None`) and
-    #        show that the key must be present even though its value may be null
+    # Pattern:
+    #   payload = copy.deepcopy(valid_payload())
+    #   del payload["glossary"]
+    #   with pytest.raises(ValidationError) as exc:
+    #       DomainModel.model_validate(payload)
+    #   assert exc.value.errors()[0]["type"] == "missing"
+    #
+    # Bonus: delete a nested key typed `str | None` (required-nullable) and show that
+    # the key must be present even though its value may be null — then set it to None
+    # instead and show validation passes. That pair IS contract rule 1.
