@@ -53,6 +53,27 @@ def _model() -> str:
     return os.environ.get("ECVT_SUBAGENT_MODEL", DEFAULT_SUBAGENT_MODEL)
 
 
+# How much of the last validator error to carry into the stage record. Long
+# enough for the first few of a multi-error Pydantic dump, which is what names
+# the pattern; the whole dump of 20 errors does not belong in state.json.
+LAST_ERROR_CHARS = 1200
+
+
+def _why(what: str, exc: StructuredCallError) -> str:
+    """A stage failure message that says what was wrong, not just how often.
+
+    StructuredCallError's own message is "<tool> produced no valid output in N
+    attempts" — it names no rule. The validator errors are in `exc.attempts`,
+    and dropping them meant state.json recorded a stage failure with nothing to
+    act on: diagnosing one live scenario_gen failure took a second live run to
+    recover errors the first run already had (2026-11-24).
+    """
+    last = exc.attempts[-1] if exc.attempts else ""
+    if not last:
+        return f"{what}: {exc}"
+    return f"{what}: {exc}; last error: {last[:LAST_ERROR_CHARS]}"
+
+
 def _base_url() -> str:
     from ecvt.execution import DEFAULT_BASE_URL
 
@@ -68,7 +89,7 @@ def run_domain_intel(stage_input: dict[str, Any]) -> dict[str, Any]:
     try:
         res = build_domain_model(spec_path=spec, model=_model())
     except StructuredCallError as e:
-        raise StageError(f"domain model invalid after correction: {e}", retryable=True) from e
+        raise StageError(_why("domain model invalid after correction", e), retryable=True) from e
     if res.declined:
         raise StageError(f"a02 declined: {res.declined.detail}", retryable=False)
     counts = summarize(res.model)
@@ -95,7 +116,7 @@ def run_scenario_gen(stage_input: dict[str, Any]) -> dict[str, Any]:
             domain_model=_load(domain_ref) if domain_ref else None,
         )
     except StructuredCallError as e:
-        raise StageError(f"scenario set invalid: {e}", retryable=True) from e
+        raise StageError(_why("scenario set invalid", e), retryable=True) from e
     counts = scenario_set.category_counts()
     return {
         "artifact": {"scenario_set": scenario_set.model_dump(mode="json", exclude_none=True)},

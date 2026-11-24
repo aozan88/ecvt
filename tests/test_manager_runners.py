@@ -132,3 +132,51 @@ def test_manager_run_exports_the_m1_file_set(tmp_path):
         assert (run_dir / name).is_file(), name
     meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
     assert meta["via"] == "manager" and meta["usage"]["total_tokens"] == 40
+
+
+def test_stage_failure_carries_the_validator_error(monkeypatch):
+    """The reason, not just the count.
+
+    StructuredCallError's message says only "produced no valid output in N
+    attempts"; the validator errors live in `.attempts`. Dropping them left
+    state.json recording a failure with nothing to act on, and diagnosing one
+    live scenario_gen failure cost a second live run.
+    """
+    boom = StructuredCallError(
+        "scenario_generator_output produced no valid output in 4 attempts",
+        attempts=["attempt 4: 20 validation errors for ScenarioSetDraft\nscenarios.0.repeat"],
+        usage=Usage(model="m"),
+    )
+
+    def explode(**_kwargs):
+        raise boom
+
+    monkeypatch.setattr(runners, "_spec_path", lambda target: target)
+    monkeypatch.setattr(
+        "agents.a03_scenario_generator.agent.generate_scenario_set", explode
+    )
+    with pytest.raises(StageError) as exc:
+        runners.run_scenario_gen(_input("scenario_gen", {"target_system": WALLET}))
+
+    message = str(exc.value)
+    assert "no valid output in 4 attempts" in message
+    assert "scenarios.0.repeat" in message  # the rule that was broken
+
+
+def test_carried_validator_error_is_bounded(monkeypatch):
+    """A 20-error Pydantic dump should not land in state.json whole."""
+    boom = StructuredCallError(
+        "no valid output", attempts=["x" * 5000], usage=Usage(model="m")
+    )
+
+    def explode(**_kwargs):
+        raise boom
+
+    monkeypatch.setattr(runners, "_spec_path", lambda target: target)
+    monkeypatch.setattr(
+        "agents.a03_scenario_generator.agent.generate_scenario_set", explode
+    )
+    with pytest.raises(StageError) as exc:
+        runners.run_scenario_gen(_input("scenario_gen", {"target_system": WALLET}))
+
+    assert len(str(exc.value)) < runners.LAST_ERROR_CHARS + 200

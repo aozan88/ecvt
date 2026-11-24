@@ -30,6 +30,7 @@ AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "scenario_generator"
 TOOL_NAME = "scenario_generator_output"
 DEFAULT_PER_CATEGORY = 2
+DEFAULT_MAX_ATTEMPTS = 4  # why 4: see generate_scenario_set
 
 
 def load_system_prompt() -> str:
@@ -141,13 +142,22 @@ def generate_scenario_set(
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
     per_category: int = DEFAULT_PER_CATEGORY,
-    max_attempts: int = 3,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     domain_model: dict[str, Any] | None = None,
 ) -> tuple[ScenarioSet, StructuredResult]:
     """Generate scenarios for `spec_path`. Returns the set and the call result.
 
     `domain_model` is a02's output (M2-T2). Without it the generator works from the
     spec alone, exactly as in M1 — the baseline the M2 comparison is measured against.
+
+    max_attempts=4, not 3: `ScenarioDraft` requires `repeat` and `concurrency`
+    per scenario on purpose (see ecvt.schema.ScenarioDraft), which at the default
+    quota is 28 numbers the model has to state, and Haiku omits some of them often
+    enough to matter — one live Manager run spent both of its stage attempts, six
+    generator calls, without a valid set, while an identical rerun validated on the
+    second (2026-11-24). Since the correction turn now keeps the rejected object in
+    context, a later attempt adds the missing fields to its own set instead of
+    generating 14 scenarios afresh, so the extra attempt is cheap.
     """
     digest = read_openapi(spec_path)
     result = structured_call(

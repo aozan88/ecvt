@@ -324,7 +324,7 @@ def test_scenarios_sent_as_json_string_is_accepted():
 
 
 def test_coercion_leaves_genuine_type_errors_alone():
-    client = FakeClient([tool_use({"scenarios": "not json at all"})] * 3)
+    client = FakeClient([tool_use({"scenarios": "not json at all"})] * sg.DEFAULT_MAX_ATTEMPTS)
     with pytest.raises(StructuredCallError):
         sg.generate_scenario_set(
             spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
@@ -364,7 +364,7 @@ def test_text_only_response_is_retried():
 
 def test_gives_up_after_max_attempts_and_keeps_usage():
     partial = {"scenarios": [make_scenario("sc-001", "happy")]}
-    client = FakeClient([tool_use(partial)] * 3)
+    client = FakeClient([tool_use(partial)] * sg.DEFAULT_MAX_ATTEMPTS)
 
     with pytest.raises(StructuredCallError) as excinfo:
         sg.generate_scenario_set(
@@ -372,8 +372,8 @@ def test_gives_up_after_max_attempts_and_keeps_usage():
         )
 
     error = excinfo.value
-    assert len(error.attempts) == 3
-    assert error.usage.calls == 3
+    assert len(error.attempts) == sg.DEFAULT_MAX_ATTEMPTS
+    assert error.usage.calls == sg.DEFAULT_MAX_ATTEMPTS
     assert error.usage.total_tokens > 0
 
 
