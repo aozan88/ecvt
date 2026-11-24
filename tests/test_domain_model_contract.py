@@ -9,28 +9,30 @@ What each test proves (one sentence from the lesson):
   3. No defaults: a required key that is missing is rejected, never filled in.
 
 How to work through this file
-  - Uncomment the imports below as soon as a test uses them (ruff fails on unused imports).
-  - Write `valid_payload()` first; all three tests use it.
-  - In each test, delete the `pytest.skip(...)` line, then write the body.
+  - `valid_payload()` is shared by all three tests.
   - Run only this file:  pytest -q tests/test_domain_model_contract.py
-  - Done when: 3 passed, 0 skipped, `ruff check .` clean.
+  - Done: 3 passed, 0 skipped, `ruff check .` clean.
 """
 
 from __future__ import annotations
 
-import copy  # noqa: F401  (used by tests 2 and 3: copy.deepcopy(valid_payload()))
+import copy
+import json
+from pathlib import Path
 
 import pytest
-
-# Uncomment when first used:
 from pydantic import ValidationError
+
 from agents.a02_domain_intelligence.schema import DomainModel
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SYSTEM_PROMPT = REPO_ROOT / "agents" / "a02_domain_intelligence" / "system_prompt.md"
 
 
 def valid_payload() -> dict:
     """Return a DomainModel payload that passes validation.
 
-    Pick ONE option, then delete the other and the `raise` line.
+    Built with Option A below. Option B is kept as a note on what the contract asks for.
 
     Option A — reuse the parcel few-shot from the system prompt (least typing):
         The JSON sits in agents/a02_domain_intelligence/system_prompt.md, in the FIRST
@@ -59,25 +61,21 @@ def valid_payload() -> dict:
     do not run, so the payload needs no OpenAPI file.
     """
 
-    text = Path("agents/a02_domain_intelligence/system_prompt.md").read_text(encoding="utf-8")
+    # Option A. The path is built from this file, not from the current directory, so
+    # the test passes wherever pytest is started from (same pattern as conftest.py).
+    text = SYSTEM_PROMPT.read_text(encoding="utf-8")
     start = text.index("emit_domain_model:") + len("emit_domain_model:")
     end = text.index("</output>", start)
-
     return json.loads(text[start:end].strip())
-    # raise NotImplementedError("TODO: pick option A or B")
 
 
 def test_valid_payload_is_accepted():
-    # pytest.skip("TODO: write me")
-    # Pattern:
     model = DomainModel.model_validate(valid_payload())
     assert model.operations[0].id == "create_parcel"
     # One assert on a real field is enough; the point is "no exception".
 
 
 def test_unknown_key_is_rejected():
-    # pytest.skip("TODO: write me")
-    # Pattern:
     payload = copy.deepcopy(valid_payload())
     payload["notes"] = "the model added this on its own"
     with pytest.raises(ValidationError) as exc:
@@ -89,8 +87,6 @@ def test_unknown_key_is_rejected():
 
 
 def test_missing_required_key_is_rejected():
-    # pytest.skip("TODO: write me")
-    # Pattern:
     payload = copy.deepcopy(valid_payload())
     del payload["glossary"]
     with pytest.raises(ValidationError) as exc:
