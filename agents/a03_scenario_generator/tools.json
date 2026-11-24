@@ -4,6 +4,76 @@
     "description": "Return the generated edge-case scenarios. Use this tool for every response: it is the only way to deliver scenarios.",
     "input_schema": {
       "$defs": {
+        "AdversarialScenarioDraft": {
+          "description": "`adversarial`: both numbers are asked for, neither is forced above 1.\n\nReplay and double-submit need `repeat`, but the category is wider than that\n— ordering tricks and malformed sequences probe abuse without sending the\naction twice. Forcing `repeat >= 2` here would push every adversarial\nscenario into one shape. The set-level check\n(`ScenarioSetDraft.missing_execution_modes`) is what catches a writing set\nin which nothing replays.",
+          "properties": {
+            "category": {
+              "const": "adversarial",
+              "title": "Category",
+              "type": "string"
+            },
+            "repeat": {
+              "description": "Send the action N times in sequence. Above 1 for replay or double-submit; 1 for abuse that does not need a duplicate.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Repeat",
+              "type": "integer"
+            },
+            "concurrency": {
+              "description": "Send the action N times in parallel (race). 1 = no race.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Concurrency",
+              "type": "integer"
+            },
+            "id": {
+              "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "description": "One short line naming what is probed.",
+              "title": "Title",
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/Severity",
+              "default": "medium"
+            },
+            "rationale": {
+              "description": "Why this is worth testing — the failure mode it would expose.",
+              "title": "Rationale",
+              "type": "string"
+            },
+            "setup": {
+              "description": "Steps that build prerequisite state.",
+              "items": {
+                "$ref": "#/$defs/HttpStep"
+              },
+              "title": "Setup",
+              "type": "array"
+            },
+            "action": {
+              "$ref": "#/$defs/HttpStep",
+              "description": "The single step under test."
+            },
+            "expectation": {
+              "$ref": "#/$defs/Expectation"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "category",
+            "rationale",
+            "action",
+            "expectation",
+            "repeat",
+            "concurrency"
+          ],
+          "title": "AdversarialScenarioDraft",
+          "type": "object"
+        },
         "Expectation": {
           "description": "What a correct system would do — never what the buggy target does.",
           "properties": {
@@ -143,23 +213,20 @@
           "title": "HttpStep",
           "type": "object"
         },
-        "ScenarioCategory": {
-          "description": "The 7 QE categories every ScenarioSet must cover (Master Plan v7).",
-          "enum": [
-            "happy",
-            "edge",
-            "stress",
-            "security",
-            "negative",
-            "adversarial",
-            "persona"
-          ],
-          "title": "ScenarioCategory",
-          "type": "string"
-        },
-        "ScenarioDraft": {
-          "description": "The per-scenario wire format: `repeat` and `concurrency` are required.\n\nOn `Scenario` both fields default to 1, which is right for a scenario\nwritten by hand or read back from a file. But a defaulted field is an\noptional field, and the generator left both out of all 14 scenarios —\nincluding one titled \"Many parallel transfers racing\" — even after the\nprompt spelled the requirement out in two places. A set where every\nscenario is concurrency=1, repeat=1 cannot reach a race or a double-spend\nhowever its categories are labelled.\n\nDropping the defaults makes the model state a number per scenario, so the\ndecision is taken rather than skipped. Whether the set as a whole actually\nexercises a race and a replay is a policy question, checked by the\ngenerator's validator where a correction can be fed back and retried.",
+        "PlainScenarioDraft": {
+          "description": "The other five categories: neither number appears in the schema at all.\n\nRequiring both on every scenario asked the model for 28 numbers at the\ndefault quota, 24 of which could only sensibly be 1, and it omitted some\noften enough to cost an attempt — with a02's DomainModel in the prompt, no\ngeneration validated on its first try. Asking only where the number is the\npoint cuts that to 8 (measured in CHANGELOG › Measured).\n\nCode supplies 1 and 1 on the way to `Scenario`.",
           "properties": {
+            "category": {
+              "enum": [
+                "happy",
+                "edge",
+                "security",
+                "negative",
+                "persona"
+              ],
+              "title": "Category",
+              "type": "string"
+            },
             "id": {
               "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
               "title": "Id",
@@ -169,9 +236,6 @@
               "description": "One short line naming what is probed.",
               "title": "Title",
               "type": "string"
-            },
-            "category": {
-              "$ref": "#/$defs/ScenarioCategory"
             },
             "severity": {
               "$ref": "#/$defs/Severity",
@@ -196,6 +260,36 @@
             },
             "expectation": {
               "$ref": "#/$defs/Expectation"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "category",
+            "rationale",
+            "action",
+            "expectation"
+          ],
+          "title": "PlainScenarioDraft",
+          "type": "object"
+        },
+        "Severity": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "StressScenarioDraft": {
+          "description": "`stress`: a race is what the category probes, so `concurrency` must be above 1.\n\nA `stress` scenario left at `concurrency: 1` is a single request with a\nlabel — the generator has produced exactly that, including one titled \"Many\nparallel transfers racing\". Here the schema does not merely ask for the\nnumber, it rules out the value that makes the category a lie.",
+          "properties": {
+            "category": {
+              "const": "stress",
+              "title": "Category",
+              "type": "string"
             },
             "repeat": {
               "description": "Send the action N times (idempotency / replay). 1 = once.",
@@ -205,11 +299,45 @@
               "type": "integer"
             },
             "concurrency": {
-              "description": "Send the action N times in parallel (race). 1 = no race.",
+              "description": "How many copies of the action run at once. Must be 2 or more: one sequential request cannot expose a race.",
               "maximum": 50,
-              "minimum": 1,
+              "minimum": 2,
               "title": "Concurrency",
               "type": "integer"
+            },
+            "id": {
+              "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "description": "One short line naming what is probed.",
+              "title": "Title",
+              "type": "string"
+            },
+            "severity": {
+              "$ref": "#/$defs/Severity",
+              "default": "medium"
+            },
+            "rationale": {
+              "description": "Why this is worth testing — the failure mode it would expose.",
+              "title": "Rationale",
+              "type": "string"
+            },
+            "setup": {
+              "description": "Steps that build prerequisite state.",
+              "items": {
+                "$ref": "#/$defs/HttpStep"
+              },
+              "title": "Setup",
+              "type": "array"
+            },
+            "action": {
+              "$ref": "#/$defs/HttpStep",
+              "description": "The single step under test."
+            },
+            "expectation": {
+              "$ref": "#/$defs/Expectation"
             }
           },
           "required": [
@@ -222,18 +350,8 @@
             "repeat",
             "concurrency"
           ],
-          "title": "ScenarioDraft",
+          "title": "StressScenarioDraft",
           "type": "object"
-        },
-        "Severity": {
-          "enum": [
-            "low",
-            "medium",
-            "high",
-            "critical"
-          ],
-          "title": "Severity",
-          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -241,7 +359,29 @@
       "properties": {
         "scenarios": {
           "items": {
-            "$ref": "#/$defs/ScenarioDraft"
+            "discriminator": {
+              "mapping": {
+                "adversarial": "#/$defs/AdversarialScenarioDraft",
+                "edge": "#/$defs/PlainScenarioDraft",
+                "happy": "#/$defs/PlainScenarioDraft",
+                "negative": "#/$defs/PlainScenarioDraft",
+                "persona": "#/$defs/PlainScenarioDraft",
+                "security": "#/$defs/PlainScenarioDraft",
+                "stress": "#/$defs/StressScenarioDraft"
+              },
+              "propertyName": "category"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/StressScenarioDraft"
+              },
+              {
+                "$ref": "#/$defs/AdversarialScenarioDraft"
+              },
+              {
+                "$ref": "#/$defs/PlainScenarioDraft"
+              }
+            ]
           },
           "maxItems": 40,
           "minItems": 1,
