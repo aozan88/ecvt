@@ -34,7 +34,13 @@ from typing import Any
 import yaml
 
 from agents.a02_domain_intelligence.schema import DeclineTask, DomainModel, build_tools
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, StructuredResult, structured_call
+from ecvt.llm import (
+    DEFAULT_SUBAGENT_MODEL,
+    StructuredCallError,
+    StructuredResult,
+    load_env,
+    structured_call,
+)
 
 AGENT_DIR = Path(__file__).resolve().parent
 DEFAULT_TASK = "Build the domain model for this target."
@@ -190,6 +196,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env()
     args = _parse_args(argv)
     if args.dry_run:
         spec = load_spec(args.spec)

@@ -23,6 +23,22 @@ DEFAULT_MANAGER_MODEL = os.environ.get("ECVT_MANAGER_MODEL", "claude-sonnet-5-5"
 PRICING_PATH = Path(__file__).resolve().parent.parent / "config" / "pricing.json"
 
 
+def load_env() -> None:
+    """Read `.env` into the environment. Every entry point calls this first.
+
+    `.env` is where the project tells people to keep ANTHROPIC_API_KEY
+    (`.env.example`), but only the eval runner read it: `ecvt run` and each
+    agent's own CLI died with "Could not resolve authentication method" unless
+    the key happened to be exported, including the commands in CLAUDE.md. It
+    lives here because every entry point that needs the key already imports
+    this module. `load_dotenv` does not override a variable that is already
+    set, so the shell still wins.
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+
 class _MessagesClient(Protocol):
     """The slice of anthropic.Anthropic this module uses (so tests can fake it)."""
 

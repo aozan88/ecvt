@@ -22,7 +22,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, StructuredResult, structured_call
+from ecvt.llm import (
+    DEFAULT_SUBAGENT_MODEL,
+    StructuredCallError,
+    StructuredResult,
+    load_env,
+    structured_call,
+)
 from ecvt.openapi_reader import ApiDigest, read_openapi
 from ecvt.schema import ALL_CATEGORIES, ScenarioSet, ScenarioSetDraft, write_scenarios_jsonl
 
@@ -208,6 +214,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env()
     args = _parse_args(argv)
 
     if args.dry_run:

@@ -34,7 +34,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, Usage, structured_call
+from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, Usage, load_env, structured_call
 from ecvt.results import ExecutionRecord, StepResult, read_executions_jsonl
 from ecvt.schema import Scenario, read_scenarios_jsonl
 from ecvt.scoring import (
@@ -316,6 +316,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env()
     args = _parse_args(argv)
 
     try:

@@ -1,7 +1,7 @@
 # Validation Pipeline
 
-> v1 · 2026-11-19 · Max 2 pages. M1 chain live on `main`; the Manager-driven
-> flow is the M2 design on `feature/manager`. Patterns and rationale:
+> v1 · 2026-11-24 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
+> are both live on `main`. Patterns and rationale:
 > [`architecture.md`](architecture.md) §3.
 
 ## 1. Flow
@@ -61,6 +61,8 @@ upstream **paths**, and the Manager receives only `artifact_ref` plus a
 | Level | Rule | Source |
 |---|---|---|
 | Target call | Errors are returned as data, never raised. Transient network errors: max 2 retries with backoff. A received HTTP status is never retried — it is the observation | ADR 0006 |
-| Stage | `StageError(retryable=True)` (rate limit, timeout, schema-invalid tool output) → one retry; anything else stops the plan | `MAX_ATTEMPTS = 2` |
+| Structured call | A validator rejection is fed back as the `tool_result` of the rejected `tool_use`, so the model corrects its own object instead of regenerating. Budget per stage: a02 3 (DomainModel validates in two layers Pydantic reports in sequence), a03 4 (`repeat`/`concurrency` are required per scenario) | `structured_call` |
+| Stage tool call | A stage is a whole subagent run, so the CLI's 60s MCP default is raised; a call cancelled anyway is recorded `failed` and retryable, never left `running` | `STAGE_TOOL_TIMEOUT_MS` |
+| Stage | `StageError(retryable=True)` (rate limit, timeout, schema-invalid tool output) → one retry; anything else stops the plan. The failure carries the last validator error, not just the attempt count | `MAX_ATTEMPTS = 2` |
 | Precondition | Not in plan, upstream failed, attempts exhausted → `blocked` | `precondition()` |
 | Manager | At most 24 turns; if no `manager_output` arrives, `finalize_guard` closes the run as failed; a "completed" claim that contradicts state is rejected | `MAX_MANAGER_TURNS = 24` |

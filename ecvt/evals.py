@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, Usage, structured_call
+from ecvt.llm import DEFAULT_SUBAGENT_MODEL, StructuredCallError, Usage, load_env, structured_call
 
 PASS_THRESHOLD = 0.80
 MIN_CASES = 10
@@ -262,6 +262,15 @@ def _import_model(dotted: str) -> Any:
     return getattr(importlib.import_module(module_name), attr)
 
 
+# What a result keeps, and what the terminal shows of it. They differ because a
+# judge's reason is the only thing that says which rubric clause failed, and at
+# 300 characters it was cut mid-sentence: diagnosing a failed case meant running
+# the eval again. The stored detail is now long enough to name the clause, while
+# the per-case line stays one screenful (the full text is in the --out JSON).
+DETAIL_CHARS = 1200
+DISPLAY_DETAIL_CHARS = 300
+
+
 def score_schema_valid(case: EvalCase, inv: Invocation) -> CaseResult:
     def result(passed: bool, detail: str) -> CaseResult:
         return CaseResult(case.id, case.scoring, case.category, passed, detail)
@@ -277,7 +286,7 @@ def score_schema_valid(case: EvalCase, inv: Invocation) -> CaseResult:
     try:
         model.model_validate(inv.obj, context=inv.context)
     except Exception as exc:  # noqa: BLE001 — any validation error is the answer
-        return result(False, f"does not match {case.expected_schema}: {exc}"[:300])
+        return result(False, f"does not match {case.expected_schema}: {exc}"[:DETAIL_CHARS])
     return result(True, f"validates against {case.expected_schema}")
 
 
@@ -307,8 +316,8 @@ def score_python_check(case: EvalCase, inv: Invocation) -> CaseResult:
     try:
         passed, detail = fn(case, inv)
     except Exception as exc:  # noqa: BLE001 — a broken check is a failed check
-        return result(False, f"{case.check} raised {type(exc).__name__}: {exc}"[:300])
-    return result(bool(passed), str(detail)[:300])
+        return result(False, f"{case.check} raised {type(exc).__name__}: {exc}"[:DETAIL_CHARS])
+    return result(bool(passed), str(detail)[:DETAIL_CHARS])
 
 
 def score_llm_judge(
@@ -380,12 +389,12 @@ def score_llm_judge(
     except StructuredCallError as exc:
         if usage is not None:
             _merge(usage, exc.usage)
-        return result(False, f"grader produced no verdict: {exc}"[:300])
+        return result(False, f"grader produced no verdict: {exc}"[:DETAIL_CHARS])
 
     if usage is not None:
         _merge(usage, call.usage)
     passed = bool(call.data["satisfies_rubric"])
-    return result(passed, str(call.data.get("reason", ""))[:300])
+    return result(passed, str(call.data.get("reason", ""))[:DETAIL_CHARS])
 
 
 def _require_bool(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -757,7 +766,10 @@ def render_report(report: EvalReport, verbose: bool = False) -> str:
     for result in report.results:
         if verbose or not result.passed:
             mark = "pass" if result.passed else "FAIL"
-            lines.append(f"  {mark}  {result.case_id}  [{result.scoring}]  {result.detail}")
+            lines.append(
+                f"  {mark}  {result.case_id}  [{result.scoring}]  "
+                f"{result.detail[:DISPLAY_DETAIL_CHARS]}"
+            )
     for case_id, reason in report.skipped:
         lines.append(f"  SKIP  {case_id}  {reason}")
     if report.usage.calls:
@@ -791,9 +803,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from dotenv import load_dotenv
-
-    load_dotenv()  # a local .env with ANTHROPIC_API_KEY is enough; the shell may override it
+    load_env()
 
     if args.check_only:
         for path in args.datasets:

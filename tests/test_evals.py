@@ -666,3 +666,30 @@ def test_mechanical_claims_are_not_left_to_the_judge():
     for case_id in ("sg-002", "sg-003", "sg-005"):
         assert cases[case_id].scoring == "python-check", f"{case_id} should be code-checked"
         assert cases[case_id].check
+
+
+def test_judge_reason_is_kept_long_enough_to_diagnose():
+    """A judge reason at 300 characters was cut mid-sentence, so the artifact
+    never said which rubric clause failed and diagnosing a case meant running
+    the eval again. The stored detail is long; the terminal line is not."""
+    from ecvt.evals import DETAIL_CHARS, DISPLAY_DETAIL_CHARS
+
+    assert DETAIL_CHARS >= 1000
+    assert DISPLAY_DETAIL_CHARS < DETAIL_CHARS
+
+
+def test_schema_failure_detail_names_the_rule(tmp_path):
+    """The validation error itself, not just "does not match <schema>"."""
+    from ecvt.evals import DETAIL_CHARS, EvalCase, Invocation, score_schema_valid
+
+    case = EvalCase(
+        id="x",
+        input={},
+        category="happy-path",
+        scoring="schema-valid",
+        expected_schema="ecvt.schema.Scenario",
+    )
+    res = score_schema_valid(case, Invocation(text="", obj={"id": "sc-001"}))
+    assert res.passed is False
+    assert "Field required" in res.detail  # the rule, not only the schema name
+    assert len(res.detail) <= DETAIL_CHARS
