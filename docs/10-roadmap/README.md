@@ -23,8 +23,21 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
   apart needs 6–10 runs a side — carried into M3, not claimed here.
 - **Open limitation into M3.** `ScenarioDraft` requires `repeat` and
   `concurrency` per scenario by design; at the default quota that is 28 numbers
-  the model must state, and roughly one generation in three exhausts a03's four
-  attempts, which makes a Manager run probabilistic (measured ~3 in 4).
+  the model must state, and Haiku omits some. Measured over 8 generations per
+  arm: from the spec alone, 8 of 8 sets validate and 4 need a second attempt;
+  with a02's DomainModel in the prompt, 6 of 8 validate and **none** on the
+  first attempt, at 1.9× the cost. So a Manager run is probabilistic (~3 in 4)
+  while the M1 chain is not — the DomainModel is what moves it.
+- **A02's DomainModel costs a03 reliability.** Taken with M2-T2 being
+  inconclusive on the catch rate, this is the clearest M2 result: the
+  DomainModel has no measured benefit downstream and two measured costs, a03's
+  omission rate and ~7× the run cost. M3 should either find the benefit with a
+  larger sample or reconsider feeding a03 this way.
+- **Tried and reverted:** restoring the `repeat`/`concurrency` defaults. Without
+  them the model fills 1 everywhere and does not correct when the set-level
+  check rejects it — 3 of 6 generations exhausted four attempts. The required
+  fields prevent the omission; the set-level check only detects it. The fix is
+  prompt or quota work in a03, not removing the constraint.
 - **Behind the D16–D29 window** for M2 (closed D33). The M1 note still holds:
   the code was written for Ozan rather than by him, and the hand-written-test
   exercise in M2 did not work as teaching — it assumed knowledge of the project
