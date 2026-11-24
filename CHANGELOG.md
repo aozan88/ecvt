@@ -3,6 +3,20 @@
 All notable changes to ECVT are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+Fixes to the gate itself, found by running G2. They land after `v0.5.0` and are
+not part of it: the tag records what was released, so it stays where it is.
+
+### Fixed
+- `scripts/gate_check.py` tested `requires_env` against `os.environ` without
+  reading `.env`. With the key sitting there it skipped five of G2's nine checks
+  and still printed a verdict, reporting the milestone as not closable for the
+  wrong reason. It now calls `ecvt.llm.load_env` before any check runs.
+- Every gate verified its tag with `git tag -l`, which reads only the local
+  repository, so it passed for a tag that had never left the machine — a release
+  gate reporting a release no one else can see. G0-7, G1-8 and G2-9 now use
+  `git ls-remote --tags origin`.
+
 ## [0.5.0] - 2026-11-24
 M2 — Domain Intelligence and the Manager; five agents end to end.
 
