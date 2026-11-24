@@ -52,6 +52,8 @@ checks:
       done; echo ADR OK
 
   - id: G0-7
-    desc: tag v0.0.1 exists
-    cmd: git tag -l v0.0.1
-    expect_stdout: v0.0.1
+    desc: tag v0.0.1 exists on the remote
+    # `git tag -l` reads only the local repository, so it would pass for a tag
+    # that had never left the machine. The tag has to be on origin to count.
+    cmd: git ls-remote --tags origin "refs/tags/v0.0.1"
+    expect_stdout: refs/tags/v0.0.1

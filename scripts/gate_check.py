@@ -69,6 +69,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Before any requires_env test. The gate reads os.environ directly, so with
+    # the key in .env — where the project tells people to keep it — it skipped
+    # five of G2's nine checks and still printed a result, which is how a gate
+    # reports a milestone as not closable for the wrong reason.
+    sys.path.insert(0, str(ROOT))
+    from ecvt.llm import load_env
+
+    load_env()
+
     gate_file = ROOT / "gates" / f"{args.milestone.upper()}.yaml"
     if not gate_file.exists():
         print(f"No gate file: {gate_file.relative_to(ROOT)}", file=sys.stderr)
