@@ -106,6 +106,9 @@ checks:
     expect_stdout: SPECS OK
 
   - id: G2-9
-    desc: tag v0.5.0 exists
-    cmd: git tag -l v0.5.0
-    expect_stdout: v0.5.0
+    desc: tag v0.5.0 exists on the remote
+    # `git tag -l` reads only the local repository, so it passed for a tag that
+    # had never left the machine — a release gate reporting a release that no
+    # one else can see. The tag has to be on origin to count.
+    cmd: git ls-remote --tags origin "refs/tags/v0.5.0"
+    expect_stdout: refs/tags/v0.5.0

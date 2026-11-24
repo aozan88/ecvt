@@ -364,3 +364,32 @@ def test_entry_points_call_load_env():
     for module in (a02, a03, a06, evals):
         src = inspect.getsource(module.main)
         assert "load_env()" in src, module.__name__
+
+
+# --- the gate decides whether a milestone closes, so it reads .env too ------
+
+
+def test_gate_check_loads_env_before_running_checks():
+    """The gate reads os.environ directly. With the key in .env — where the
+    project tells people to keep it — it skipped five of G2's nine checks and
+    still printed a result, reporting the milestone as not closable for the
+    wrong reason."""
+    src = (REPO_ROOT / "scripts" / "gate_check.py").read_text(encoding="utf-8")
+    main_src = src[src.index("def main()"):]
+    assert "load_env()" in main_src
+    # Before the checks run, or it has not helped.
+    assert main_src.index("load_env()") < main_src.index("run_check")
+
+
+def test_no_gate_checks_its_tag_locally():
+    """`git tag -l` passes for a tag that never left the machine — a release
+    gate reporting a release no one else can see."""
+    import yaml
+
+    for gate in sorted((REPO_ROOT / "gates").glob("M*.yaml")):
+        checks = yaml.safe_load(gate.read_text(encoding="utf-8"))["checks"]
+        for check in checks:
+            assert "git tag -l" not in check["cmd"], f"{gate.name} {check['id']}"
+        assert any(
+            "ls-remote" in c["cmd"] and "refs/tags/" in c["cmd"] for c in checks
+        ), f"{gate.name} has no remote tag check"
