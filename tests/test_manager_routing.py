@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import pytest
 
-from agents.a01_manager.agent import INTENT_PLAN, StateStore
+from agents.a01_manager.agent import (INTENT_PLAN, StateStore, MAX_ATTEMPTS, precondition)
 
 # Uncomment when first used:
 # from agents.a01_manager.agent import MAX_ATTEMPTS, precondition
@@ -50,28 +50,32 @@ def make_state(tmp_path, intent: str) -> dict:
 def test_routing_intent_picks_the_plan():
     pytest.skip("TODO: write me")
     # Pattern (a different intent, so you still write yours):
-    #   assert INTENT_PLAN["domain_analysis"] == ("domain_intel",)
+    assert INTENT_PLAN["domain_analysis"] == ("domain_intel","scenario_gen")
     # Yours: generate_scenarios -> ("domain_intel", "scenario_gen")
+    assert INTENT_PLAN["domain_intel"] == ("scenario_gen")
     # Bonus: assert INTENT_PLAN["out_of_scope"] == ()  — an empty plan runs nothing.
+    assert INTENT_PLAN["out_of_scope"] == ()
 
 
 def test_stage_outside_plan_is_blocked(tmp_path):
     pytest.skip("TODO: write me")
     # Pattern:
-    #   state = make_state(tmp_path, "<intent>")
-    #   assert precondition(state, "<stage>") == "<reason>"
+    state = make_state(tmp_path, "generate_scenarios")
+    assert precondition(state, "execution") == "stage_not_in_plan"
     # Yours: intent generate_scenarios, stage execution -> "stage_not_in_plan"
 
 
 def test_chaining_waits_for_upstream(tmp_path):
     pytest.skip("TODO: write me")
     # Two asserts in one test — before and after the upstream stage succeeds:
-    #   state = make_state(tmp_path, "full_validation")
-    #   assert precondition(state, "scenario_gen") == "upstream_not_succeeded:domain_intel"
-    #   state["stages"]["domain_intel"]["status"] = "succeeded"
-    #   assert precondition(state, "scenario_gen") is None
+    state = make_state(tmp_path, "full_validation")
+    assert precondition(state, "scenario_gen") == "upstream_not_succeeded:domain_intel"
+    state["stages"]["domain_intel"]["status"] = "succeeded"
+    assert precondition(state, "scenario_gen") is None
     # Write it yourself from the lines above; then add a third assert of your own:
     # under full_validation, what does precondition(state, "evaluation") return now?
+    state["stages"]["scenario_gen"]["status"] = "succeeded"
+    assert precondition(state, "evaluation") == "upstream_not_succeeded:execution"
 
 
 def test_retry_limit_stops_a_retryable_failure(tmp_path):
@@ -79,10 +83,13 @@ def test_retry_limit_stops_a_retryable_failure(tmp_path):
     # Use stage "domain_intel" (first in the plan). With "scenario_gen" the upstream
     # check fires first and you get "upstream_not_succeeded:..." — the wrong reason.
     # Pattern for editing one stage record:
-    #   rec = state["stages"]["domain_intel"]
-    #   rec.update(attempts=..., status="failed", error={"retryable": ...})
+    rec = state["stages"]["domain_intel"]
+    rec.update(attempts=MAX_ATTEMPTS, status="failed", error={"retryable": true})
     # Yours: attempts = MAX_ATTEMPTS, retryable True -> "max_attempts_reached"
     # Bonus: same record with attempts = 1 -> None (one retry is still allowed).
+    assert precondition(state, "domain_intel") == "max_attempts_reached"
+    rec.update(attempts=1, status="succeded", error={"retryable": true})
+    assert precondition(state, "domain_intel") is None
 
 
 def test_non_retryable_failure_is_not_retried(tmp_path):
@@ -90,4 +97,9 @@ def test_non_retryable_failure_is_not_retried(tmp_path):
     # Same pattern as test 4.
     # Yours: stage "domain_intel", attempts = 1, status "failed",
     #        error {"retryable": False} -> "not_retryable"
+    rec = state["stages"]["domain_intel"]
+    rec.update(attempts=1, status="failed", error={"retryable": false})
+    assert precondition(state, "domain_intel") == "not_retryable"
     # Question: why does a received HTTP status count as non-retryable? (ADR 0006)
+    # Answer : Request reached Claude and responded. S no need to resend current request.
+    

@@ -64,8 +64,8 @@ def valid_payload() -> dict:
 def test_valid_payload_is_accepted():
     pytest.skip("TODO: write me")
     # Pattern:
-    #   model = DomainModel.model_validate(valid_payload())
-    #   assert model.operations[0].id == "<the id you expect>"
+    model = DomainModel.model_validate(valid_payload())
+    assert model.operations[0].id == "<the id you expect>"
     # One assert on a real field is enough; the point is "no exception".
 
 
