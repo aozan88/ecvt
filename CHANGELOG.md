@@ -41,27 +41,52 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
-a03's `repeat`/`concurrency` omission rate, 8 generations per arm against
-wallet-api on `claude-haiku-5-5`. 0.5.0 put this at "roughly one generation in
-three"; that holds, but only on the Manager path, and the two paths differ more
-than the figure suggested:
+a03's `repeat`/`concurrency` omission rate, wallet-api on `claude-haiku-5-5`,
+`scripts/measure_a03.py`. "Before" is the single wire model that asked for both
+numbers on every scenario; "after" is the category union.
 
-| | Valid sets | First attempt | `Field required` | Cost |
-|---|---|---|---|---|
-| Spec only (M1 path) | 8 / 8 | 4 / 8 | 4 | $0.038 |
-| With a02's DomainModel (Manager path) | 6 / 8 | **0 / 8** | 14 | $0.073 |
+| Arm | | Valid sets | First attempt | `Field required` in | Cost / run |
+|---|---|---|---|---|---|
+| With a02's DomainModel | before | 6 / 8 | **0 / 8** | 8 / 8 | $0.0092 |
+| With a02's DomainModel | after | **8 / 8** | **5 / 8** | 3 / 8 | **$0.0052** |
+| Spec only | before | 8 / 8 | 4 / 8 | 4 / 8 | $0.0048 |
+| Spec only | after | 15 / 16 | 8 / 16 | 7 / 16 | $0.0051 |
 
-With the DomainModel in the prompt, no generation validates on its first
-attempt, a quarter produce nothing valid in four, and a03 costs 1.9× as much.
-This is a second cost of M2-T2, alongside its inconclusive effect on the catch
-rate: the DomainModel measurably lowers a03's reliability.
+The union is a clear win on the path it was aimed at and neutral on the other.
+The mechanism is visible in the cost: three branches each embed the scenario
+core, so the tool schema grows from 2554 to 3869 input tokens (+51%), a fixed
+charge on every call. The saving is the attempts not spent. The Manager path had
+attempts to save and ends 43% cheaper; the spec-only path had few, so the larger
+schema shows up as about 6% more per run. The spec-only arm is 16 runs because
+the first 8 read 7/8 and 3/8 — a borderline draw that the second 8 (8/8, 5/8)
+puts back at the rate before the change.
+
+It reduces the omission rather than removing it: `Field required` still appears
+in 3 of 8 Manager-path generations.
+
+a03's eval does not separate the two, and the reason is worth recording. Two
+runs on each side, bar 80%:
+
+| | Run 1 | Run 2 | Pooled |
+|---|---|---|---|
+| Single wire model (`main`) | 90% | 70% | 16 / 20 |
+| Category union | 80% | 70% | 15 / 20 |
+
+`main` itself fails the bar in one run of two, and the dominant failure in all
+four runs is a generation exhausting its four attempts — the same omission the
+union is about. One case over 20 is not a difference at this sample size. The
+useful finding is about the gate rather than the change: a single run of a03's
+eval is not a reliable 80% check, because its floor moves with the omission rate.
 
 Restoring the defaults was tried as a fix and reverted. Without them the model
 fills 1 everywhere, the set-level check rejects the set, and it does not correct
 when told: 3 of 6 generations exhausted four attempts on `no_race_or_replay`.
 The required fields prevent the omission; the set-level check only detects it.
-Recovering the wasted attempt means getting the numbers stated more reliably —
-prompt or quota work in a03 — not removing the constraint.
+
+Dropping the Manager's project settings cut its eval's spend: 24,809 tokens and
+$0.0033 before, 14,856 and $0.0019 after, at 12/12 both ways. One run each, and
+the turn count moved too, so the proportion is not exact — but the input-token
+drop is what removing a static block from context looks like.
 
 ## [0.5.0] - 2026-11-24
 M2 — Domain Intelligence and the Manager; five agents end to end.
