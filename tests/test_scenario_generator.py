@@ -137,15 +137,9 @@ def test_tool_schema_generated_from_pydantic():
     assert schema["type"] == "object"
     assert schema["required"] == ["scenarios"]
     assert set(schema["$defs"]) >= {"ScenarioDraft", "HttpStep", "Expectation", "ScenarioCategory"}
-    # Both default to 1, so a number is stated only where the model means
-    # something else. Requiring one per scenario asked for 28 numbers and cost
-    # half of all generations an extra attempt on "Field required"; the
-    # guarantee that a set reaches a race and a replay is the generator's
-    # set-level check, not the field's optionality (see ScenarioDraft).
-    draft_required = set(schema["$defs"]["ScenarioDraft"].get("required", []))
-    assert not {"repeat", "concurrency"} & draft_required
-    assert schema["$defs"]["ScenarioDraft"]["properties"]["repeat"]["default"] == 1
-    assert schema["$defs"]["ScenarioDraft"]["properties"]["concurrency"]["default"] == 1
+    # The wire model makes both required, so the model has to state a number
+    # per scenario rather than silently inheriting 1 (see ScenarioDraft).
+    assert {"repeat", "concurrency"} <= set(schema["$defs"]["ScenarioDraft"]["required"])
     assert schema["$defs"]["ScenarioCategory"]["enum"] == [c.value for c in ALL_CATEGORIES]
 
 
