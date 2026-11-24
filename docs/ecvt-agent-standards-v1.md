@@ -136,7 +136,8 @@ No prose outside the JSON object.
   Tek cümle "ne yapar" + tek cümle "ne zaman kullan".
 - Her property'nin kendi `description`'ı olur. `required` her zaman açıkça yazılır.
 - Serbest metin yerine `enum` tercih et (model daha az sapar).
-- Agent başına 3–7 tool. Fazlası seçim kalitesini düşürür.
+- Agent başına en fazla 7 tool; fazlası seçim kalitesini düşürür. Tek atımlık, zorunlu
+  tool'lu bir subagent (ADR 0009) için 1–2 tool yeterlidir: bir çıktı tool'u, gerekirse bir ret tool'u.
 
 ### Şablon
 ```json

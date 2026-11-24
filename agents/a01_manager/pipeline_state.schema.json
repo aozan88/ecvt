@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ecvt/a01_manager/pipeline_state.schema.json",
+  "title": "ECVT pipeline state",
+  "description": "Single source of truth for one run. Written only by a01_manager code (tool handlers), never by the LLM directly. Stored at runs/<run_id>/state.json; stage artifacts live next to it and are referenced, not embedded.",
+  "type": "object",
+  "required": ["schema_version", "run_id", "status", "created_at", "updated_at", "request", "intent", "plan", "stages", "result", "manager_session"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "pattern": "^run_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{4}$" },
+    "status": {
+      "enum": ["created", "classified", "running", "completed", "failed", "needs_input", "rejected", "status_reported"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "request": {
+      "type": "object",
+      "required": ["raw_input", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "raw_input": { "type": "string" },
+        "source": { "enum": ["cli", "n8n", "eval", "api"] }
+      }
+    },
+    "intent": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["name", "confidence", "rationale", "slots", "out_of_scope_reason", "next_action", "missing_slots", "invalid_slots", "recorded_at"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "enum": ["full_validation", "generate_scenarios", "domain_analysis", "execute_scenarios", "evaluate_results", "run_status", "out_of_scope"] },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "rationale": { "type": "string" },
+            "slots": { "type": "object", "additionalProperties": { "type": "string" } },
+            "out_of_scope_reason": { "enum": [null, "wrong_domain", "stage_not_available", "framework_request"] },
+            "next_action": { "enum": ["dispatch", "ask_user", "reject", "answer_status"] },
+            "missing_slots": { "type": "array", "items": { "type": "string" } },
+            "invalid_slots": { "type": "array", "items": { "type": "string" } },
+            "recorded_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "plan": {
+      "description": "Ordered stage list derived in code from intent (INTENT_PLAN). The LLM cannot change it.",
+      "type": "array",
+      "items": { "enum": ["domain_intel", "scenario_gen", "execution", "evaluation"] },
+      "uniqueItems": true
+    },
+    "stages": {
+      "type": "object",
+      "required": ["domain_intel", "scenario_gen", "execution", "evaluation"],
+      "additionalProperties": false,
+      "properties": {
+        "domain_intel": { "$ref": "#/$defs/stage" },
+        "scenario_gen": { "$ref": "#/$defs/stage" },
+        "execution": { "$ref": "#/$defs/stage" },
+        "evaluation": { "$ref": "#/$defs/stage" }
+      }
+    },
+    "result": {
+      "description": "The manager_output tool input, as accepted by the code. Null until the Manager finishes.",
+      "type": ["object", "null"]
+    },
+    "manager_session": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "properties": {
+            "session_id": { "type": ["string", "null"] },
+            "num_turns": { "type": ["integer", "null"] },
+            "total_cost_usd": { "type": ["number", "null"] },
+            "is_error": { "type": ["boolean", "null"] }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "required": ["agent", "status", "attempts", "started_at", "finished_at", "artifact_ref", "summary", "metrics", "usage", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "enum": ["a02_domain_intelligence", "a03_scenario_generator", "a05_execution", "a06_evaluation"] },
+        "status": { "enum": ["not_planned", "pending", "running", "succeeded", "failed"] },
+        "attempts": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "finished_at": { "type": ["string", "null"], "format": "date-time" },
+        "artifact_ref": { "type": ["string", "null"], "description": "Path relative to runs/, e.g. run_.../scenario_gen.json" },
+        "summary": { "type": ["string", "null"], "maxLength": 500 },
+        "metrics": { "type": "object" },
+        "usage": { "type": "object" },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["message", "retryable"],
+              "properties": {
+                "message": { "type": "string" },
+                "retryable": { "type": "boolean" }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

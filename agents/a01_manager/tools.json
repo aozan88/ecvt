@@ -1,25 +1,171 @@
-{
-  "_comment": "DRAFT schema stub. Tool stubs for 7 subagents (input/output JSON shapes). Iterate in Project 01.",
-  "manager_output": {
-    "type": "object",
-    "required": ["intent", "pipeline", "results", "summary"],
-    "properties": {
-      "intent": {
-        "type": "string",
-        "enum": ["UNDERSTAND", "GENERATE", "VALIDATE_AC", "RUN", "SCORE", "COMPARE", "REPORT", "FULL_PIPELINE"]
+[
+  {
+    "name": "record_intent",
+    "description": "Records the classified intent and extracted slots for this run; the code then returns next_action (dispatch | ask_user | reject | answer_status), the stage plan, and any missing or invalid slots. Use it first in every run, exactly once, before any other tool or delegation.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "description": "The run_id given in the <run_id> tag of the request. Copy it verbatim."
+        },
+        "intent": {
+          "type": "string",
+          "enum": ["full_validation", "generate_scenarios", "domain_analysis", "execute_scenarios", "evaluate_results", "run_status", "out_of_scope"],
+          "description": "Exactly one intent from the taxonomy in the system prompt."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Your confidence in the intent label. Below 0.6 the code returns next_action=ask_user."
+        },
+        "slots": {
+          "type": "object",
+          "description": "Values stated in the request. Leave a slot out if the user did not say it; never guess.",
+          "properties": {
+            "target_system": {
+              "type": "string",
+              "description": "The system, module or endpoint under test, in the user's words (e.g. 'IKYS leave approval flow')."
+            },
+            "plugin": {
+              "type": "string",
+              "description": "Plugin name, only if it exactly matches a name in <available_plugins>. The code validates it against the plugin registry; an unknown name is rejected as an invalid slot."
+            },
+            "scope": {
+              "type": "string",
+              "description": "Optional narrowing the user stated (endpoints, features, risk focus)."
+            },
+            "scenario_set_ref": {
+              "type": "string",
+              "description": "Path or id of an existing scenario set the user wants executed."
+            },
+            "execution_ref": {
+              "type": "string",
+              "description": "Path or id of existing execution results the user wants evaluated."
+            },
+            "run_ref": {
+              "type": "string",
+              "description": "A previous run_id the user is asking about."
+            }
+          },
+          "additionalProperties": false
+        },
+        "out_of_scope_reason": {
+          "type": "string",
+          "enum": ["wrong_domain", "stage_not_available", "framework_request"],
+          "description": "Required when intent=out_of_scope. stage_not_available = Acceptance, Regression, Reporting or Knowledge (not built yet)."
+        },
+        "rationale": {
+          "type": "string",
+          "description": "One sentence: which words in the request decided the label."
+        }
       },
-      "pipeline": { "type": "array", "items": { "type": "string" } },
-      "results": { "type": "object" },
-      "summary": { "type": "string" }
+      "required": ["run_id", "intent", "confidence", "slots", "rationale"]
     }
   },
-  "subagents": {
-    "domain-intelligence": { "input": {}, "output": {} },
-    "scenario-generator": { "input": {}, "output": {} },
-    "acceptance": { "input": {}, "output": {} },
-    "execution": { "input": {}, "output": {} },
-    "evaluation": { "input": {}, "output": {} },
-    "regression": { "input": {}, "output": {} },
-    "reporting": { "input": {}, "output": {} }
+  {
+    "name": "run_domain_intel",
+    "description": "Runs stage domain_intel (a02 Domain Intelligence): builds the domain model of the target system through its plugin. Callable only by the domain-intel subagent; the code rejects it if the stage is not next in the plan.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "description": "run_id of the current pipeline run." }
+      },
+      "required": ["run_id"]
+    }
+  },
+  {
+    "name": "run_scenario_gen",
+    "description": "Runs stage scenario_gen (a03 Scenario Generator): produces the edge-case scenario set from the domain model. Callable only by the scenario-gen subagent; the code rejects it until every earlier stage in the plan has succeeded.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "description": "run_id of the current pipeline run." }
+      },
+      "required": ["run_id"]
+    }
+  },
+  {
+    "name": "run_execution",
+    "description": "Runs stage execution (a05 Execution): executes the scenario set against the target system through its plugin. Callable only by the execution subagent; the code rejects it until every earlier stage in the plan has succeeded.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "description": "run_id of the current pipeline run." }
+      },
+      "required": ["run_id"]
+    }
+  },
+  {
+    "name": "run_evaluation",
+    "description": "Runs stage evaluation (a06 Evaluation): scores the execution results and produces verdicts. Callable only by the evaluation subagent; the code rejects it until every earlier stage in the plan has succeeded.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "description": "run_id of the current pipeline run." }
+      },
+      "required": ["run_id"]
+    }
+  },
+  {
+    "name": "get_run_state",
+    "description": "Returns a compact summary (status, intent, per-stage status, artifact refs) of a previous run. Use only when record_intent returned next_action=answer_status.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_ref": { "type": "string", "description": "The run_id the user asked about (slots.run_ref)." }
+      },
+      "required": ["run_ref"]
+    }
+  },
+  {
+    "name": "manager_output",
+    "description": "Records the final result of the run and ends the Manager's work. Use exactly once, as the last call, whatever the outcome (completed, failed, needs_input, rejected, status_reported).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "description": "run_id of the current run." },
+        "status": {
+          "type": "string",
+          "enum": ["completed", "failed", "needs_input", "rejected", "status_reported"],
+          "description": "completed = every plan stage succeeded. failed = a stage failed or was blocked. needs_input = one clarifying question. rejected = out of scope. status_reported = answered a run_status request."
+        },
+        "intent": {
+          "type": "string",
+          "enum": ["full_validation", "generate_scenarios", "domain_analysis", "execute_scenarios", "evaluate_results", "run_status", "out_of_scope"],
+          "description": "The intent recorded with record_intent."
+        },
+        "stages_run": {
+          "type": "array",
+          "description": "One entry per stage delegated in this run, in execution order. Empty if nothing was dispatched.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "stage": { "type": "string", "enum": ["domain_intel", "scenario_gen", "execution", "evaluation"] },
+              "status": { "type": "string", "enum": ["succeeded", "failed", "blocked"] },
+              "attempts": { "type": "integer", "minimum": 1 },
+              "artifact_ref": { "type": ["string", "null"], "description": "artifact_ref from the stage result; never the artifact content." }
+            },
+            "required": ["stage", "status", "attempts", "artifact_ref"],
+            "additionalProperties": false
+          }
+        },
+        "clarifying_question": {
+          "type": "string",
+          "description": "Required when status=needs_input. Exactly one question, in the user's language."
+        },
+        "redirect": {
+          "type": "string",
+          "description": "Required when status=rejected. What ECVT can do instead, or where the request belongs."
+        },
+        "summary": {
+          "type": "string",
+          "description": "At most 3 sentences in the user's language: what ran, the outcome, where the artifacts are."
+        }
+      },
+      "required": ["run_id", "status", "intent", "stages_run", "summary"],
+      "additionalProperties": false
+    }
   }
-}
+]

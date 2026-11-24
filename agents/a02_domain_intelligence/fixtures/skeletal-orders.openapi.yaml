@@ -1,0 +1,22 @@
+# a02 eval fixture — edge case (di-004): paths only, no schemas, no security, no operationIds.
+openapi: 3.0.3
+info:
+  title: Orders Service
+  version: "1"
+paths:
+  /orders:
+    post:
+      summary: Place an order
+      responses:
+        '200': {description: OK}
+  /orders/{orderId}:
+    get:
+      parameters:
+        - {name: orderId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: OK}
+    delete:
+      parameters:
+        - {name: orderId, in: path, required: true, schema: {type: string}}
+      responses:
+        '204': {description: Deleted}

@@ -1,7 +1,736 @@
-{
-  "_comment": "DRAFT schema stub for domain-intelligence. Iterate in Project 02.",
-  "domain-intelligence_output": {
-    "type": "object",
-    "properties": {}
+[
+  {
+    "name": "emit_domain_model",
+    "description": "Emits the complete DomainModel (entities, operations, workflows, rules, gaps, glossary) extracted from the OpenAPI document. Use whenever the task is to model the target system's domain; call it once with the full model, and again in full if validation errors are returned.",
+    "input_schema": {
+      "$defs": {
+        "Constraint": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "description": "OpenAPI/JSON Schema keyword as written in the spec.",
+              "enum": [
+                "required",
+                "minimum",
+                "maximum",
+                "exclusiveMinimum",
+                "exclusiveMaximum",
+                "minLength",
+                "maxLength",
+                "pattern",
+                "enum",
+                "format",
+                "multipleOf",
+                "minItems",
+                "maxItems",
+                "uniqueItems",
+                "readOnly",
+                "writeOnly",
+                "nullable",
+                "default"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "description": "Keyword value as written, stringified: '0', 'date', '[created, delivered]', 'true'.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        "Entity": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "snake_case identifier, unique within its collection.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name as the spec uses it (schema name or path noun).",
+              "type": "string"
+            },
+            "description": {
+              "description": "One sentence: what this entity is in the spec's terms.",
+              "maxLength": 300,
+              "minLength": 3,
+              "type": "string"
+            },
+            "identifier": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Name of the identifying field, or null if the spec exposes none."
+            },
+            "fields": {
+              "description": "Fields found in the spec. Empty if the entity is only named by a path; never invent fields.",
+              "items": {
+                "$ref": "#/$defs/EntityField"
+              },
+              "type": "array"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "description",
+            "identifier",
+            "fields",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "EntityField": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "description": "Property name exactly as in the spec (case preserved).",
+              "type": "string"
+            },
+            "type": {
+              "description": "JSON Schema type; 'unknown' if the spec gives none.",
+              "enum": [
+                "string",
+                "integer",
+                "number",
+                "boolean",
+                "array",
+                "object",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "writable": {
+              "description": "True if a client can set it: appears in a request body or parameter and is not readOnly.",
+              "type": "boolean"
+            },
+            "bounds": {
+              "description": "declared = value space fully constrained (min+max, enum, maxLength/pattern, bounding format); partial = only one side; not_declared = nothing; not_applicable = boolean/object.",
+              "enum": [
+                "declared",
+                "partial",
+                "not_declared",
+                "not_applicable"
+              ],
+              "type": "string"
+            },
+            "constraints": {
+              "description": "Every keyword the spec declares on this field. Empty list if none.",
+              "items": {
+                "$ref": "#/$defs/Constraint"
+              },
+              "type": "array"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "writable",
+            "bounds",
+            "constraints",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Gap": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "snake_case identifier, unique within its collection.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "unspecified",
+                "contradictory"
+              ],
+              "type": "string"
+            },
+            "dimension": {
+              "enum": [
+                "bounds",
+                "idempotency",
+                "authorization",
+                "ownership",
+                "state_transition",
+                "concurrency",
+                "referential_integrity",
+                "uniqueness",
+                "error_contract",
+                "temporal",
+                "precision_units"
+              ],
+              "type": "string"
+            },
+            "refs": {
+              "description": "All elements sharing this same open question.",
+              "items": {
+                "description": "Reference to a model element: 'entity:<id>', 'entity:<id>.<field name>', 'op:<id>' or 'workflow:<id>'.",
+                "pattern": "^(entity|op|workflow):[a-z][a-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_-]*)?$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "question": {
+              "description": "The question the spec does not answer. A question, never a claim that the system is defective.",
+              "maxLength": 300,
+              "minLength": 3,
+              "type": "string"
+            },
+            "priority": {
+              "description": "high = changes the outcome of a write or crosses a party boundary; medium = bounds, error contracts, temporal; low = read-only or naming ambiguity.",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "dimension",
+            "refs",
+            "question",
+            "priority",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "GlossaryTerm": {
+          "additionalProperties": false,
+          "properties": {
+            "term": {
+              "type": "string"
+            },
+            "definition": {
+              "maxLength": 300,
+              "minLength": 3,
+              "type": "string"
+            },
+            "aliases": {
+              "description": "Other names the spec uses for the same concept. Empty if none.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maps_to": {
+              "description": "Model elements this term names. Empty if none.",
+              "items": {
+                "description": "Reference to a model element: 'entity:<id>', 'entity:<id>.<field name>', 'op:<id>' or 'workflow:<id>'.",
+                "pattern": "^(entity|op|workflow):[a-z][a-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_-]*)?$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "provenance": {
+              "description": "declared = machine-readable in the spec (schema keyword, enum, required, security, response code); described = stated in prose (description/summary); inferred = reasoned from names, structure or HTTP semantics, not stated.",
+              "enum": [
+                "declared",
+                "described",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "term",
+            "definition",
+            "aliases",
+            "maps_to",
+            "provenance",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Operation": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "Operation id copied verbatim from <operation_inventory>.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "method": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "OPTIONS"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "description": "Path template copied verbatim from <operation_inventory>.",
+              "type": "string"
+            },
+            "effect": {
+              "description": "What the operation does to domain state.",
+              "enum": [
+                "read",
+                "create",
+                "update",
+                "delete",
+                "action"
+              ],
+              "type": "string"
+            },
+            "entities": {
+              "description": "Ids of entities this operation reads or changes.",
+              "items": {
+                "description": "snake_case identifier, unique within its collection.",
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "idempotency": {
+              "$ref": "#/$defs/Verdict",
+              "description": "Is repeating the call with the same input safe, and does the spec say so? not_applicable for reads."
+            },
+            "authorization": {
+              "$ref": "#/$defs/Verdict",
+              "description": "Who may call it: security requirements in effect."
+            },
+            "ownership": {
+              "$ref": "#/$defs/Verdict",
+              "description": "Whose resource it acts on, and whether the spec restricts acting on another party's resource."
+            },
+            "declared_errors": {
+              "description": "4XX/5XX/default response codes declared for this operation. Empty if none.",
+              "items": {
+                "pattern": "^([1-5][0-9]{2}|[1-5]XX|default)$",
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "path",
+            "effect",
+            "entities",
+            "idempotency",
+            "authorization",
+            "ownership",
+            "declared_errors"
+          ],
+          "type": "object"
+        },
+        "Rule": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "snake_case identifier, unique within its collection.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "field_constraint",
+                "invariant",
+                "precondition",
+                "uniqueness",
+                "referential",
+                "quota",
+                "temporal",
+                "authorization"
+              ],
+              "type": "string"
+            },
+            "statement": {
+              "description": "One testable sentence the system should obey.",
+              "maxLength": 300,
+              "minLength": 3,
+              "type": "string"
+            },
+            "applies_to": {
+              "items": {
+                "description": "Reference to a model element: 'entity:<id>', 'entity:<id>.<field name>', 'op:<id>' or 'workflow:<id>'.",
+                "pattern": "^(entity|op|workflow):[a-z][a-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_-]*)?$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "provenance": {
+              "description": "declared = machine-readable in the spec (schema keyword, enum, required, security, response code); described = stated in prose (description/summary); inferred = reasoned from names, structure or HTTP semantics, not stated.",
+              "enum": [
+                "declared",
+                "described",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            "confidence": {
+              "description": "declared rules are high; inferred rules are never high.",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "statement",
+            "applies_to",
+            "provenance",
+            "confidence",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Transition": {
+          "additionalProperties": false,
+          "properties": {
+            "from_state": {
+              "type": "string"
+            },
+            "to_state": {
+              "type": "string"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "description": "snake_case identifier, unique within its collection.",
+                  "maxLength": 64,
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Operation that drives the transition, or null if no operation in the spec does (time- or system-driven)."
+            },
+            "provenance": {
+              "description": "declared = machine-readable in the spec (schema keyword, enum, required, security, response code); described = stated in prose (description/summary); inferred = reasoned from names, structure or HTTP semantics, not stated.",
+              "enum": [
+                "declared",
+                "described",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "from_state",
+            "to_state",
+            "operation",
+            "provenance",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Verdict": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "description": "declared/described/inferred as in provenance; not_specified = the spec is silent; contradictory = the spec says two incompatible things; not_applicable = the dimension does not apply.",
+              "enum": [
+                "declared",
+                "described",
+                "inferred",
+                "not_specified",
+                "contradictory",
+                "not_applicable"
+              ],
+              "type": "string"
+            },
+            "detail": {
+              "description": "One sentence stating what the spec says or what is missing.",
+              "maxLength": 300,
+              "minLength": 3,
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "status",
+            "detail",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        "Workflow": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "snake_case identifier, unique within its collection.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "entity": {
+              "description": "Primary entity the workflow moves through its lifecycle.",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "state_field": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Field holding the lifecycle state, or null if none."
+            },
+            "states": {
+              "description": "Values of state_field, as in the spec. Empty if state_field is null.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "description": "Operation ids in happy-path order.",
+              "items": {
+                "description": "snake_case identifier, unique within its collection.",
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            "transitions": {
+              "description": "State transitions. Empty if state_field is null.",
+              "items": {
+                "$ref": "#/$defs/Transition"
+              },
+              "type": "array"
+            },
+            "provenance": {
+              "description": "declared = machine-readable in the spec (schema keyword, enum, required, security, response code); described = stated in prose (description/summary); inferred = reasoned from names, structure or HTTP semantics, not stated.",
+              "enum": [
+                "declared",
+                "described",
+                "inferred"
+              ],
+              "type": "string"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "entity",
+            "state_field",
+            "states",
+            "steps",
+            "transitions",
+            "provenance",
+            "evidence"
+          ],
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Domain model of the target system, extracted from its OpenAPI document only.",
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/Entity"
+          },
+          "type": "array"
+        },
+        "operations": {
+          "description": "Exactly one per inventory row.",
+          "items": {
+            "$ref": "#/$defs/Operation"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/Workflow"
+          },
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/Rule"
+          },
+          "maxItems": 60,
+          "type": "array"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/Gap"
+          },
+          "maxItems": 60,
+          "type": "array"
+        },
+        "glossary": {
+          "items": {
+            "$ref": "#/$defs/GlossaryTerm"
+          },
+          "maxItems": 40,
+          "type": "array"
+        }
+      },
+      "required": [
+        "entities",
+        "operations",
+        "workflows",
+        "rules",
+        "gaps",
+        "glossary"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "decline_task",
+    "description": "Returns a structured refusal to the Manager. Use instead of emit_domain_model only when the task asks for something other than a domain model (test scenarios, defect verdicts, prioritised bug lists, code) or the input is not an OpenAPI document.",
+    "input_schema": {
+      "additionalProperties": false,
+      "description": "Structured refusal returned to the Manager.",
+      "properties": {
+        "reason": {
+          "enum": [
+            "out_of_scope",
+            "input_not_openapi"
+          ],
+          "type": "string"
+        },
+        "requested": {
+          "description": "What the task asked for, in one sentence.",
+          "maxLength": 300,
+          "minLength": 3,
+          "type": "string"
+        },
+        "detail": {
+          "description": "Why a02 does not do it. Name no other agent; the Manager routes.",
+          "maxLength": 300,
+          "minLength": 3,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "requested",
+        "detail"
+      ],
+      "type": "object"
+    }
   }
-}
+]

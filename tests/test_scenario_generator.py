@@ -40,6 +40,10 @@ class FakeToolUse:
     name: str
     input: dict[str, Any]
     type: str = "tool_use"
+    id: str = "toolu_fake"
+    """A real tool_use block always carries an id, and the correction turn
+    answers it with a tool_result — without one here the retry path under test
+    would be a different shape from the live one."""
 
 
 @dataclass
@@ -107,6 +111,18 @@ def full_payload() -> dict[str, Any]:
 
 def tool_use(payload: dict[str, Any]) -> FakeToolUse:
     return FakeToolUse(name=sg.TOOL_NAME, input=payload)
+
+
+def correction_text(client: FakeClient, call: int = 1) -> str:
+    """The validation feedback the retry carried.
+
+    Normally the `tool_result` that answers the rejected tool_use; a plain user
+    turn when there was no tool call to answer (see `_correction_messages`).
+    """
+    content = client.messages.calls[call]["messages"][-1]["content"]
+    if isinstance(content, str):
+        return content
+    return "\n".join(str(block.get("content", "")) for block in content)
 
 
 # --- tool schema -----------------------------------------------------------
@@ -212,10 +228,17 @@ def test_retry_on_missing_category():
     assert "missing" in result.corrections[0]
     assert scenario_set.covers_all_categories()
 
-    correction = client.messages.calls[1]["messages"][-1]["content"]
+    correction = correction_text(client)
     assert "rejected by schema validation" in correction
     assert "adversarial" in correction  # the actual missing category is named
     assert result.usage.calls == 2
+
+    # The rejected attempt is still in the transcript, so "keep everything else"
+    # is something the model can act on.
+    retry = client.messages.calls[1]["messages"]
+    assert [m["role"] for m in retry] == ["user", "assistant", "user"]
+    assert retry[-1]["content"][0]["tool_use_id"] == "toolu_fake"
+    assert retry[-1]["content"][0]["is_error"] is True
 
 
 def test_retry_when_the_set_never_races_or_replays():
@@ -239,7 +262,7 @@ def test_retry_when_the_set_never_races_or_replays():
     )
 
     assert result.attempts == 2
-    correction = client.messages.calls[1]["messages"][-1]["content"]
+    correction = correction_text(client)
     assert "`concurrency` above 1" in correction
     assert "`repeat` above 1" in correction
     assert any(s.concurrency > 1 for s in scenario_set.scenarios)
@@ -301,7 +324,7 @@ def test_scenarios_sent_as_json_string_is_accepted():
 
 
 def test_coercion_leaves_genuine_type_errors_alone():
-    client = FakeClient([tool_use({"scenarios": "not json at all"})] * 3)
+    client = FakeClient([tool_use({"scenarios": "not json at all"})] * sg.DEFAULT_MAX_ATTEMPTS)
     with pytest.raises(StructuredCallError):
         sg.generate_scenario_set(
             spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
@@ -341,7 +364,7 @@ def test_text_only_response_is_retried():
 
 def test_gives_up_after_max_attempts_and_keeps_usage():
     partial = {"scenarios": [make_scenario("sc-001", "happy")]}
-    client = FakeClient([tool_use(partial)] * 3)
+    client = FakeClient([tool_use(partial)] * sg.DEFAULT_MAX_ATTEMPTS)
 
     with pytest.raises(StructuredCallError) as excinfo:
         sg.generate_scenario_set(
@@ -349,8 +372,8 @@ def test_gives_up_after_max_attempts_and_keeps_usage():
         )
 
     error = excinfo.value
-    assert len(error.attempts) == 3
-    assert error.usage.calls == 3
+    assert len(error.attempts) == sg.DEFAULT_MAX_ATTEMPTS
+    assert error.usage.calls == sg.DEFAULT_MAX_ATTEMPTS
     assert error.usage.total_tokens > 0
 
 

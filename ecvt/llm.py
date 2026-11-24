@@ -191,6 +191,8 @@ class StructuredResult:
     usage: Usage
     attempts: int
     corrections: list[str] = field(default_factory=list)
+    tool_name: str | None = None
+    """Which tool the model called — matters when it may choose between several."""
 
 
 def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
@@ -221,20 +223,79 @@ def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _tool_input(response: Any, tool_name: str) -> dict[str, Any] | None:
+def _tool_use_block(response: Any, tool_names: set[str]) -> Any | None:
+    """The first tool_use block for one of `tool_names`, or None.
+
+    The block itself, not just its input: a correction turn has to answer it by
+    id, and the block is what carries the model's rejected object back into the
+    next request.
+    """
     for block in getattr(response, "content", None) or []:
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
-            data = getattr(block, "input", None)
-            if isinstance(data, dict):
-                return data
+        name = getattr(block, "name", None)
+        is_call = getattr(block, "type", None) == "tool_use" and name in tool_names
+        if is_call and isinstance(getattr(block, "input", None), dict):
+            return block
     return None
+
+
+def _correction_instruction(label: str) -> str:
+    return (
+        f"Call {label} again. Fix only what the error names and keep everything "
+        "else exactly as you had it. Return the complete object, not a patch."
+    )
+
+
+def _correction_messages(
+    user: str, response: Any, block: Any, failure: str, label: str
+) -> list[dict[str, Any]]:
+    """The conversation for one more attempt, with the rejected attempt still in it.
+
+    The rejected tool_use stays in the transcript and the error comes back as its
+    `tool_result`, so "keep everything else" is an instruction the model can
+    follow — it can see its own object. Replacing the attempt with a bare user
+    message made every retry a fresh generation instead: a02 on wallet-api failed
+    attempt 1 on an entity identifier and attempt 2 on an unrelated ownership gap,
+    5 of 12 eval cases passing (2026-11-24). The errors moved rather than
+    converged, because there was nothing to converge on.
+    """
+    head: list[dict[str, Any]] = [{"role": "user", "content": user}]
+    instruction = _correction_instruction(label)
+    if block is None or getattr(block, "id", None) is None:
+        # Nothing to answer: the model sent no tool call (or a fake client sent
+        # no id). Say it in a plain turn rather than forge a tool_result.
+        return head + [
+            {
+                "role": "user",
+                "content": (
+                    f"Your previous output was rejected by schema validation:\n\n"
+                    f"{failure}\n\n{instruction}"
+                ),
+            }
+        ]
+    return head + [
+        {"role": "assistant", "content": list(getattr(response, "content", None) or [])},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "is_error": True,
+                    "content": (
+                        f"Your previous output was rejected by schema validation:\n\n"
+                        f"{failure}\n\n{instruction}"
+                    ),
+                }
+            ],
+        },
+    ]
 
 
 def structured_call(
     *,
-    system: str,
+    system: str | list[str],
     user: str,
-    tool: dict[str, Any],
+    tool: dict[str, Any] | list[dict[str, Any]],
     validate: Any,
     client: _MessagesClient | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
@@ -242,10 +303,18 @@ def structured_call(
     max_attempts: int = 3,
     cache_system: bool = True,
 ) -> StructuredResult:
-    """Call Claude, force `tool`, and return input that `validate` accepted.
+    """Call Claude, force a tool call, and return input that `validate` accepted.
 
-    `validate(data)` should raise on invalid input; its error text is sent back
-    to the model as a correction. Raises StructuredCallError if every attempt
+    One tool: it is forced by name. Several tools: the model must call one of
+    them (`tool_choice: any`) and `validate` is a dict of tool name -> validator;
+    `StructuredResult.tool_name` says which one it chose.
+
+    `system` may be a list of texts (e.g. system prompt, then a skill); each
+    becomes its own block and the cache breakpoint goes on the last one, so the
+    whole stable prefix is cached.
+
+    A validator should raise on invalid input; its error text is sent back to
+    the model as a correction. Raises StructuredCallError if every attempt
     fails — the partial Usage is attached so the caller can still log spend.
     """
     if client is None:
@@ -253,9 +322,20 @@ def structured_call(
 
         client = anthropic.Anthropic()
 
-    system_blocks: list[dict[str, Any]] = [{"type": "text", "text": system}]
+    texts = [system] if isinstance(system, str) else list(system)
+    system_blocks: list[dict[str, Any]] = [{"type": "text", "text": t} for t in texts]
     if cache_system:
-        system_blocks[0]["cache_control"] = {"type": "ephemeral"}
+        system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
+
+    tools = [tool] if isinstance(tool, dict) else list(tool)
+    names = {t["name"] for t in tools}
+    if len(tools) == 1:
+        tool_choice: dict[str, Any] = {"type": "tool", "name": tools[0]["name"]}
+        label = tools[0]["name"]
+    else:
+        tool_choice = {"type": "any"}
+        label = " or ".join(t["name"] for t in tools)
+    validators = validate if isinstance(validate, dict) else dict.fromkeys(names, validate)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
     usage = Usage(model=model)
@@ -266,43 +346,37 @@ def structured_call(
             model=model,
             max_tokens=max_tokens,
             system=system_blocks,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": tool["name"]},
+            tools=tools,
+            tool_choice=tool_choice,
             messages=messages,
         )
         usage.add_response(response)
 
-        data = _tool_input(response, tool["name"])
-        if data is None:
-            failures.append(f"attempt {attempt}: no {tool['name']} tool call in response")
+        block = _tool_use_block(response, names)
+        if block is None:
+            failures.append(f"attempt {attempt}: no {label} tool call in response")
         else:
-            data = coerce_json_strings(data)
+            called = block.name
+            data = coerce_json_strings(block.input)
             try:
-                validate(data)
+                validators[called](data)
             except Exception as exc:  # noqa: BLE001 — any validator error becomes feedback
                 failures.append(f"attempt {attempt}: {exc}")
             else:
                 return StructuredResult(
-                    data=data, usage=usage, attempts=attempt, corrections=failures
+                    data=data,
+                    usage=usage,
+                    attempts=attempt,
+                    corrections=failures,
+                    tool_name=called,
                 )
 
         if attempt == max_attempts:
             break
-        messages = [
-            {"role": "user", "content": user},
-            {
-                "role": "user",
-                "content": (
-                    "Your previous output was rejected by schema validation:\n\n"
-                    f"{failures[-1]}\n\n"
-                    f"Call {tool['name']} again. Fix only what the error names and keep "
-                    "everything else. Return the complete object, not a patch."
-                ),
-            },
-        ]
+        messages = _correction_messages(user, response, block, failures[-1], label)
 
     raise StructuredCallError(
-        f"{tool['name']} produced no valid output in {max_attempts} attempts",
+        f"{label} produced no valid output in {max_attempts} attempts",
         attempts=failures,
         usage=usage,
     )

@@ -111,6 +111,10 @@ class Invocation:
 
     usage: Usage | None = None
 
+    context: dict[str, Any] | None = None
+    """Validation context for schema-valid, for models whose checks need the input
+    (a02: the spec and operation inventory, so evidence pointers are verified)."""
+
 
 @dataclass
 class CaseResult:
@@ -231,7 +235,27 @@ def load_dataset(path: str | Path) -> tuple[list[EvalCase], list[str]]:
 # --- scorers ---------------------------------------------------------------
 
 
+def _tools_json_validator(ref: str) -> Any:
+    """`<path>/tools.json::<tool>` -> an object with model_validate(obj, context=None),
+    for agents whose output contract is a JSON Schema rather than a Pydantic model."""
+    import jsonschema
+
+    path, _, name = ref.partition("::")
+    tools = json.loads(Path(path).read_text(encoding="utf-8"))
+    schema = next(t["input_schema"] for t in tools if t["name"] == name)
+
+    class _Schema:
+        @staticmethod
+        def model_validate(obj: Any, context: Any = None) -> Any:
+            jsonschema.validate(obj, schema)
+            return obj
+
+    return _Schema
+
+
 def _import_model(dotted: str) -> Any:
+    if "::" in dotted:
+        return _tools_json_validator(dotted)
     module_name, _, attr = dotted.rpartition(".")
     if not module_name:
         raise ValueError(f"expected_schema must be a dotted path, got {dotted!r}")
@@ -251,7 +275,7 @@ def score_schema_valid(case: EvalCase, inv: Invocation) -> CaseResult:
     except (ImportError, AttributeError, ValueError) as exc:
         return result(False, f"cannot import {case.expected_schema}: {exc}")
     try:
-        model.model_validate(inv.obj)
+        model.model_validate(inv.obj, context=inv.context)
     except Exception as exc:  # noqa: BLE001 — any validation error is the answer
         return result(False, f"does not match {case.expected_schema}: {exc}"[:300])
     return result(True, f"validates against {case.expected_schema}")
@@ -442,6 +466,132 @@ def adapt_scenario_generator(case: EvalCase, ctx: AdapterContext) -> Invocation:
     return Invocation(text=_render(payload), obj=payload, usage=result.usage)
 
 
+def adapt_domain_intelligence(case: EvalCase, ctx: AdapterContext) -> Invocation:
+    """Run a02 on `input.spec` with `input.task`. Its output is a DomainModel or a
+    DeclineTask; schema-valid checks it against the spec it was built from."""
+    from agents.a02_domain_intelligence.agent import (
+        DEFAULT_TASK,
+        build_domain_model,
+        build_inventory,
+        load_spec,
+    )
+
+    if ctx.client is None and not os.environ.get("ANTHROPIC_API_KEY"):
+        raise Unmeasurable("domain modelling needs ANTHROPIC_API_KEY")
+
+    spec_path = case.input.get("spec")
+    if not spec_path:
+        return Invocation(text="No OpenAPI spec was supplied.", error="no spec supplied")
+    try:
+        spec = load_spec(spec_path)
+        res = build_domain_model(
+            spec_path=spec_path,
+            task=case.input.get("task", DEFAULT_TASK),
+            client=ctx.client,
+            model=ctx.model,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        return Invocation(text=f"cannot read spec: {exc}", error=str(exc))
+    except StructuredCallError as exc:
+        return Invocation(text=str(exc), error=str(exc), usage=exc.usage)
+
+    payload = res.payload()
+    tool = res.call.tool_name or "emit_domain_model"
+    return Invocation(
+        text=f"{tool}:\n{_render(payload)}",
+        obj=payload,
+        error="declined" if res.declined else None,
+        usage=res.call.usage,
+        context={"spec": spec, "inventory": build_inventory(spec)},
+    )
+
+
+MANAGER_EVAL_BUDGET_USD = 0.50
+
+
+def _manager_stub_runners(faults: dict[str, str]) -> dict[str, Any]:
+    """Deterministic stages for Manager evals: each succeeds unless `setup.stub_runners`
+    injects a fault — "fail_retryable" (transient) or "fail" (permanent)."""
+    from agents.a01_manager.agent import STAGES, StageError
+
+    def make(stage: str) -> Any:
+        def run(stage_input: dict[str, Any]) -> dict[str, Any]:
+            fault = faults.get(stage)
+            if fault == "fail_retryable":
+                raise StageError(f"{stage}: injected transient fault", retryable=True)
+            if fault == "fail":
+                raise StageError(f"{stage}: injected permanent fault", retryable=False)
+            return {"artifact": {"stub": stage, "upstream": sorted(stage_input["upstream"])},
+                    "summary": f"{stage} ok (stub)", "metrics": {}, "usage": {}}
+
+        return run
+
+    return {s: make(s) for s in STAGES}
+
+
+def _seed_run(store: Any, spec: str) -> None:
+    """`run_id:status` -> a finished run in the eval's runs dir (for run_status cases)."""
+    from agents.a01_manager.agent import STAGES
+
+    run_id, _, status = spec.partition(":")
+    state = store.create(run_id, "seeded for eval", "cli")
+    state["intent"] = {"name": "full_validation", "slots": {}}
+    state["plan"] = list(STAGES)
+    for s in STAGES:
+        state["stages"][s].update(status="succeeded", attempts=1)
+    state["status"] = status or "completed"
+    state["result"] = {"run_id": run_id, "status": state["status"], "summary": "seeded run"}
+    store.save(state)
+
+
+def adapt_manager(case: EvalCase, ctx: AdapterContext) -> Invocation:
+    """Run the real Manager (live model) over stub stages. The output the graders read is
+    the ordered tool-call trace, the stage records and the manager_output."""
+    import asyncio
+    import tempfile
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise Unmeasurable("the Manager needs ANTHROPIC_API_KEY (it runs on the Agent SDK)")
+    from agents.a01_manager import agent as mgr
+
+    request = case.input.get("request")
+    if not isinstance(request, str):
+        raise ValueError(f"case {case.id}: input.request must be the user's message")  # noqa: TRY004
+    setup = case.input.get("setup") or {}
+    runs_dir = Path(tempfile.mkdtemp(prefix="ecvt-mgr-eval-"))
+    store = mgr.StateStore(runs_dir)
+    for seed in setup.get("seed_runs", []):
+        _seed_run(store, seed)
+    run_id = mgr.new_run_id()
+    trace: list[dict[str, Any]] = []
+    cost: list[float] = []
+
+    async def drive() -> None:
+        async for msg in mgr.run_manager(
+            request,
+            run_id=run_id,
+            runs_dir=runs_dir,
+            runners=_manager_stub_runners(setup.get("stub_runners") or {}),
+            max_budget_usd=MANAGER_EVAL_BUDGET_USD,
+        ):
+            for block in getattr(msg, "content", None) or []:
+                if type(block).__name__ == "ToolUseBlock":
+                    name = block.name.removeprefix(f"mcp__{mgr.SERVER}__")
+                    trace.append({"tool": name, "input": block.input})
+            if getattr(msg, "total_cost_usd", None) is not None:
+                cost.append(float(msg.total_cost_usd))
+
+    asyncio.run(drive())
+    state = store.load(run_id)
+    stages = {
+        s: {"status": state["stages"][s]["status"], "attempts": state["stages"][s]["attempts"]}
+        for s in state["plan"]
+    }
+    view = {"tool_calls": trace, "intent": state["intent"], "stages": stages,
+            "manager_output": state["result"], "cost_usd": cost[-1] if cost else None}
+    return Invocation(text=_render(view), obj=state["result"])
+
+
 def _inline_scenario(case: EvalCase) -> Any:
     from ecvt.schema import Scenario
 
@@ -502,10 +652,15 @@ def adapt_evaluation(case: EvalCase, ctx: AdapterContext) -> Invocation:
 
 
 ADAPTERS: dict[str, Adapter] = {
+    "a01_manager": adapt_manager,
+    "a02_domain_intelligence": adapt_domain_intelligence,
     "a03_scenario_generator": adapt_scenario_generator,
     "a05_execution": adapt_execution,
     "a06_evaluation": adapt_evaluation,
 }
+
+
+TARGET_AGENTS = ("a05_execution", "a06_evaluation")
 
 
 def adapter_for(dataset_path: str | Path) -> tuple[str, Adapter | None]:
@@ -636,6 +791,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    from dotenv import load_dotenv
+
+    load_dotenv()  # a local .env with ANTHROPIC_API_KEY is enough; the shell may override it
+
     if args.check_only:
         for path in args.datasets:
             try:
@@ -661,7 +820,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    needs_target = any(adapter_for(p)[0] != "a03_scenario_generator" for p in args.datasets)
+    # Only Execution and Evaluation cases call the target; a01 runs on stub stages.
+    needs_target = any(adapter_for(p)[0] in TARGET_AGENTS for p in args.datasets)
     if needs_target and not target_reachable(args.base_url):
         print(
             f"No target at {args.base_url}. Execution and Evaluation cases run against a "

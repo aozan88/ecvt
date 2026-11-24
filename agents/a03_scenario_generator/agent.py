@@ -30,6 +30,7 @@ AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "scenario_generator"
 TOOL_NAME = "scenario_generator_output"
 DEFAULT_PER_CATEGORY = 2
+DEFAULT_MAX_ATTEMPTS = 4  # why 4: see generate_scenario_set
 
 
 def load_system_prompt() -> str:
@@ -54,11 +55,35 @@ def build_tool() -> dict[str, Any]:
     }
 
 
+DOMAIN_KEYS = ("rules", "gaps", "workflows")
+
+
+def render_domain_model(domain_model: dict[str, Any]) -> str:
+    """The parts of a02's DomainModel that point at test ideas: rules to break, gaps
+    the spec leaves open, and state transitions. Entities and operations are left out:
+    the API surface already carries them, and repeating them costs tokens."""
+    compact = {k: domain_model.get(k, []) for k in DOMAIN_KEYS}
+    return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+
+
 def build_user_prompt(
-    digest: ApiDigest, target: str, per_category: int = DEFAULT_PER_CATEGORY
+    digest: ApiDigest,
+    target: str,
+    per_category: int = DEFAULT_PER_CATEGORY,
+    domain_model: dict[str, Any] | None = None,
 ) -> str:
     total = per_category * len(ALL_CATEGORIES)
     quota = "\n".join(f"- {c.value}: {per_category}" for c in ALL_CATEGORIES)
+    domain = ""
+    if domain_model:
+        domain = (
+            "Below is the domain analysis of the same spec: the rules the system should "
+            "obey, the questions the spec leaves open (gaps) and the state transitions. "
+            "Use it to aim scenarios — a rule is something to try to break, a gap is "
+            "behaviour nobody specified. It is derived from the spec, not from a bug list, "
+            "and every scenario must still use only the API surface above.\n\n"
+            f"<domain_model>\n{render_domain_model(domain_model)}\n</domain_model>\n\n"
+        )
     return (
         f"Target system: {target}\n\n"
         "Below is the target's API surface, distilled from its OpenAPI spec. It is "
@@ -66,6 +91,7 @@ def build_user_prompt(
         "<api_surface>\n"
         f"{digest.render()}\n"
         "</api_surface>\n\n"
+        f"{domain}"
         f"Write exactly {per_category} scenarios for each category — {total} in total:\n"
         f"{quota}\n\n"
         "Hold to that count per category. `negative` and `edge` ideas come easily and "
@@ -116,13 +142,27 @@ def generate_scenario_set(
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
     per_category: int = DEFAULT_PER_CATEGORY,
-    max_attempts: int = 3,
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    domain_model: dict[str, Any] | None = None,
 ) -> tuple[ScenarioSet, StructuredResult]:
-    """Generate scenarios for `spec_path`. Returns the set and the call result."""
+    """Generate scenarios for `spec_path`. Returns the set and the call result.
+
+    `domain_model` is a02's output (M2-T2). Without it the generator works from the
+    spec alone, exactly as in M1 — the baseline the M2 comparison is measured against.
+
+    max_attempts=4, not 3: `ScenarioDraft` requires `repeat` and `concurrency`
+    per scenario on purpose (see ecvt.schema.ScenarioDraft), which at the default
+    quota is 28 numbers the model has to state, and Haiku omits some of them often
+    enough to matter — one live Manager run spent both of its stage attempts, six
+    generator calls, without a valid set, while an identical rerun validated on the
+    second (2026-11-24). Since the correction turn now keeps the rejected object in
+    context, a later attempt adds the missing fields to its own set instead of
+    generating 14 scenarios afresh, so the extra attempt is cheap.
+    """
     digest = read_openapi(spec_path)
     result = structured_call(
         system=load_system_prompt(),
-        user=build_user_prompt(digest, target, per_category),
+        user=build_user_prompt(digest, target, per_category, domain_model),
         tool=build_tool(),
         validate=_make_validator(),
         client=client,
