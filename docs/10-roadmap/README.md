@@ -9,15 +9,26 @@ IDs: `Dnn` day (D00 = 22 Oct 2026) · `Mx-Tn` milestone task · `Gx` gate ·
 `ADR nnnn` decision in `docs/11-decisions/`. A milestone closes only when its
 gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 
-## Status (export 2026-11-02 · D11)
+## Status (export 2026-11-24 · D33)
 
 - **M0 closed.** G0 PASS, tag `v0.0.1`.
-- **M1 nearly closed.** T1–T8 done; T9 open on the tag `v0.3.0` (G1-8).
-  The three agents' evals read a03 90% / a05 100% / a06 100% against the 80%
-  bar; catch rate 8/10.
-- **Ahead of plan** on M1 (T9 was dated D15 · 6 Nov) because the code was
-  written for Ozan rather than by him, and the prompt-iteration days
-  (D04–D06, D09, D12) were spent on the eval harness instead.
+- **M1 closed.** G1 PASS, tag `v0.3.0`. The three agents' evals read a03 90% /
+  a05 100% / a06 100% against the 80% bar.
+- **M2 closed.** G2 PASS, tag `v0.5.0` (PRs #25, #26, #27). a01 eval 100%
+  (12/12), a02 83% (10/12). One live `ecvt run --manager` runs all four stages
+  in order; catch rate 6/10.
+- **M2-T2 measured, inconclusive.** Over three runs a side, M1 read 5 / 5 / 7
+  and M2 read 5 / 7 with one run failing: the bands coincide, so these three
+  runs do not separate the two. M2 costs about 7× M1 per run. Telling them
+  apart needs 6–10 runs a side — carried into M3, not claimed here.
+- **Open limitation into M3.** `ScenarioDraft` requires `repeat` and
+  `concurrency` per scenario by design; at the default quota that is 28 numbers
+  the model must state, and roughly one generation in three exhausts a03's four
+  attempts, which makes a Manager run probabilistic (measured ~3 in 4).
+- **Behind the D16–D29 window** for M2 (closed D33). The M1 note still holds:
+  the code was written for Ozan rather than by him, and the hand-written-test
+  exercise in M2 did not work as teaching — it assumed knowledge of the project
+  the exercise was supposed to build.
 
 ## Milestone map
 

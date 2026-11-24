@@ -3,14 +3,31 @@
 All notable changes to ECVT are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased] — 0.5.0
+## [0.5.0] - 2026-11-24
 M2 — Domain Intelligence and the Manager; five agents end to end.
+
+Gate G2: 8 of 9 checks pass, the ninth being this tag. a01 eval 100% (12/12),
+a02 eval 83% (10/12), both over the 80% bar. One live `ecvt run --manager`
+completes all four stages in order at a catch rate of 6/10.
+
+M2-T2 (does a02's DomainModel raise the catch rate?) is **measured and
+inconclusive**: over three runs a side, M1 read 5 / 5 / 7 and M2 read 5 / 7
+with one run failing — the bands coincide and M2's higher median is an artefact
+of having two completed runs rather than three. The clear difference is cost,
+about 7× M1 per run. Separating the two needs 6–10 runs a side.
+
+Known limitation: `ScenarioDraft` requires `repeat` and `concurrency` per
+scenario by design, which at the default quota is 28 numbers the model must
+state, and Haiku omits some often enough that roughly one generation in three
+exhausts a03's four attempts. That makes a Manager run probabilistic — measured
+at about 3 in 4 — and is the first thing to address in M3.
 
 ### Added
 - `a02_domain_intelligence`: OpenAPI → `DomainModel` (entities, operations with
   idempotency / authorization / ownership verdicts, workflows, rules, gaps, glossary)
   or a structured `DeclineTask`. Operation inventory built in code; output validated
-  against the spec (coverage, method/path, evidence pointers); one correction retry.
+  against the spec (coverage, method/path, evidence pointers); up to two corrections,
+  because the two validation layers are reported in sequence, not together.
 - `a01_manager`: Agent SDK orchestrator — 7 intents, plan derived in code, stage
   preconditions, PreToolUse hook, pipeline state per run; `runners.py` wires a02/a03/a05/a06.
 - `ecvt run --manager`: the run through the Manager; artifacts exported to the M1 files.
@@ -21,6 +38,19 @@ M2 — Domain Intelligence and the Manager; five agents end to end.
 
 ### Changed
 - `ecvt.llm.structured_call`: several tools (`tool_choice: any`) and system blocks.
+  A rejected attempt now stays in the conversation and the validator error comes
+  back as its `tool_result`, so a correction edits the model's own object instead
+  of regenerating it from nothing.
+- Stage tool calls raise the CLI's 60s MCP ceiling (`MCP_TOOL_TIMEOUT`); a stage
+  is a whole subagent run. A call cancelled anyway is recorded as failed and
+  retryable rather than left `running`, which used to block the Manager's retry
+  with `already_running`.
+- A stage failure records the last validator error, not only the attempt count.
+- `ecvt run --manager` refuses `--scenarios`, `--no-judge`, `--per-category`,
+  `--timeout` and `--max-parallel` instead of accepting and ignoring them.
+- Every entry point that needs a key reads `.env` (`ecvt.llm.load_env`); before,
+  only the eval runner did, so `ecvt run` needed the key exported by hand.
+- Eval results keep enough detail to name the rule or rubric clause that failed.
 - `claude-agent-sdk` pinned to 0.2.187; `jsonschema` added.
 
 ## [0.3.0] - 2026-11-02
