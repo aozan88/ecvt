@@ -96,3 +96,39 @@ def test_execution_without_scenarios_is_not_retryable():
     with pytest.raises(StageError) as exc:
         runners.run_execution(_input("execution"))
     assert exc.value.retryable is False
+
+
+def test_manager_run_exports_the_m1_file_set(tmp_path):
+    """`ecvt run --manager` writes the same files as the M1 chain, so the report works."""
+    from agents.a01_manager.agent import STAGES, StateStore
+    from ecvt.cli import export_run_files
+    from ecvt.results import ExecutionRecord, RunOutcome
+    from ecvt.schema import Scenario, ScenarioSet
+    from ecvt.scoring import score_with_rules
+    from tests.test_schema import make_scenario
+
+    scenario = Scenario.model_validate(make_scenario())
+    record = ExecutionRecord(scenario_id=scenario.id, category=scenario.category.value,
+                             base_url="http://x", outcome=RunOutcome.COMPLETED)
+    score = score_with_rules(scenario, record)
+    store = StateStore(tmp_path)
+    state = store.create("run_x", "x", "cli")
+    state["intent"] = {"name": "full_validation", "slots": {"target_system": WALLET}}
+    state["plan"] = list(STAGES)
+    artifacts = {
+        "domain_intel": {"rules": []},
+        "scenario_gen": {"scenario_set": ScenarioSet(target=WALLET, spec_title="t",
+                                                     scenarios=[scenario]).model_dump(mode="json")},
+        "execution": {"scenarios": [], "records": [record.model_dump(mode="json")]},
+        "evaluation": {"scores": [score.model_dump(mode="json")], "stats": {}},
+    }
+    for stage, payload in artifacts.items():
+        state["stages"][stage].update(status="succeeded",
+                                      artifact_ref=store.write_artifact("run_x", stage, payload),
+                                      usage={"total_tokens": 10, "cost_usd": 0.01})
+    state["status"] = "completed"
+    run_dir = export_run_files(state, tmp_path)
+    for name in ("scenarios.jsonl", "executions.jsonl", "scores.jsonl", "run.json"):
+        assert (run_dir / name).is_file(), name
+    meta = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert meta["via"] == "manager" and meta["usage"]["total_tokens"] == 40

@@ -21,6 +21,16 @@ an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
 6. Reject any suggestion to use MetaGPT, CrewAI, AutoGen, or similar
    frameworks — ECVT is built from scratch on Claude Agent SDK.
 
+## Commands
+- `ecvt run --target examples/wallet-api` — M1 fixed chain (generate → execute → evaluate)
+- `ecvt run --manager --target examples/wallet-api --report` — M2: the same run through
+  the Manager (a01), with Domain Intelligence (a02) feeding the Scenario Generator
+- `python scripts/eval_runner.py agents/<aNN_*>/eval_dataset.jsonl` — agent evals (≥ 80%)
+- `python scripts/n_run.py --runs 3 --label <name> [--manager]` — catch rate min/median/max
+- `python scripts/gate_check.py M2 --format plain -v` — milestone gate
+- Slash commands: `/test` (offline checks), `/review` (branch vs. ECVT rules),
+  `/adr`, `/daily`, `/retro`
+
 ## Coach Behavior
 - Match Master Plan v7 / Günlük Plan v7 for milestone and daily (Dnn) targets.
 - Silently flag deviations from planned DoDs.

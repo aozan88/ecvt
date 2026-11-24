@@ -1,0 +1,111 @@
+# Gate G2 — M2 Domain Intelligence + Manager, five agents end to end (Master Plan v7)
+# Run: python scripts/gate_check.py M2 --format plain -v   (bash: Codespace, Linux, Git Bash)
+#
+# G2-1 performs one live run through the Manager into artifacts/gate-m2/; the checks
+# after it inspect that run. Like G1, the gate writes only into artifacts/ (gitignored).
+# a03/a05/a06 evals passed at G1 and their prompts are unchanged when no DomainModel is
+# given, so G2-4 measures the two new agents only.
+gate: G2
+milestone: M2
+checks:
+  - id: G2-1
+    desc: ecvt run --manager finishes in one command against a live target (exit 0)
+    requires_env: [ANTHROPIC_API_KEY]
+    timeout: 900
+    cmd: |
+      rm -rf artifacts/gate-m2
+      uvicorn app:app --app-dir examples/wallet-api --port 8768 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 40); do curl -sf localhost:8768/openapi.json -o /dev/null && break; sleep 0.3; done
+      python -m ecvt.cli run --manager \
+        --target examples/wallet-api \
+        --base-url http://localhost:8768 \
+        --out-dir artifacts/gate-m2 \
+        --report
+      echo "MANAGER RUN OK"
+    expect_stdout: MANAGER RUN OK
+
+  - id: G2-2
+    desc: the Manager ran all four stages in order, each once or with one retry
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      python -c "
+      import glob, json
+      from agents.a02_domain_intelligence.schema import DomainModel
+      run = sorted(glob.glob('artifacts/gate-m2/runs/run_*'))[-1]
+      s = json.load(open(f'{run}/state.json'))
+      assert s['intent']['name'] == 'full_validation', s['intent']['name']
+      plan = ['domain_intel', 'scenario_gen', 'execution', 'evaluation']
+      assert s['plan'] == plan, s['plan']
+      for st in plan:
+          rec = s['stages'][st]
+          assert rec['status'] == 'succeeded' and rec['attempts'] <= 2, (st, rec['status'])
+      starts = [s['stages'][st]['started_at'] for st in plan]
+      assert starts == sorted(starts), 'stages out of order'
+      DomainModel.model_validate(json.load(open(f'{run}/domain_intel.json')))
+      print('FOUR STAGES IN ORDER')
+      "
+    expect_stdout: FOUR STAGES IN ORDER
+
+  - id: G2-3
+    desc: all five agents' eval datasets are well-formed with >= 10 cases
+    cmd: |
+      python scripts/eval_runner.py \
+        agents/a01_manager/eval_dataset.jsonl \
+        agents/a02_domain_intelligence/eval_dataset.jsonl \
+        agents/a03_scenario_generator/eval_dataset.jsonl \
+        agents/a05_execution/eval_dataset.jsonl \
+        agents/a06_evaluation/eval_dataset.jsonl \
+        --check-only
+      echo "DATASETS OK"
+    expect_stdout: DATASETS OK
+
+  - id: G2-4
+    desc: a01 Manager and a02 Domain Intelligence eval pass rate is >= 80%
+    requires_env: [ANTHROPIC_API_KEY]
+    timeout: 1800
+    cmd: |
+      python scripts/eval_runner.py \
+        agents/a01_manager/eval_dataset.jsonl \
+        agents/a02_domain_intelligence/eval_dataset.jsonl \
+        --out artifacts/gate-m2/evals.json
+      echo "EVALS MEET BAR"
+    expect_stdout: EVALS MEET BAR
+
+  - id: G2-5
+    desc: pytest green (unit + integration)
+    timeout: 300
+    cmd: python -m pytest -q
+
+  - id: G2-6
+    desc: the Manager run's report states the catch rate against ground truth
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      grep -ohE "Catch rate: [0-9]+/[0-9]+" artifacts/gate-m2/runs/run_*/report.md
+    expect_stdout: "Catch rate:"
+
+  - id: G2-7
+    desc: tokens and cost are logged, Manager turns included
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      python -c "
+      import glob, json
+      run = sorted(glob.glob('artifacts/gate-m2/runs/run_*'))[-1]
+      u = json.load(open(f'{run}/run.json'))['usage']
+      assert u['total_tokens'] > 0, 'no subagent tokens logged'
+      assert u['manager_cost_usd'] > 0, 'Manager cost missing'
+      print(f\"USAGE OK {u['total_tokens']} tokens, {u['cost_usd']} USD\")
+      "
+    expect_stdout: USAGE OK
+
+  - id: G2-8
+    desc: agent specs for a01 and a02 are written (no STUB banner)
+    cmd: |
+      ! grep -l "STUB" docs/03-agents/manager.md docs/03-agents/domain-intelligence.md \
+        && echo "SPECS OK"
+    expect_stdout: SPECS OK
+
+  - id: G2-9
+    desc: tag v0.5.0 exists
+    cmd: git tag -l v0.5.0
+    expect_stdout: v0.5.0

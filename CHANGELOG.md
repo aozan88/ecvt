@@ -3,6 +3,26 @@
 All notable changes to ECVT are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased] — 0.5.0
+M2 — Domain Intelligence and the Manager; five agents end to end.
+
+### Added
+- `a02_domain_intelligence`: OpenAPI → `DomainModel` (entities, operations with
+  idempotency / authorization / ownership verdicts, workflows, rules, gaps, glossary)
+  or a structured `DeclineTask`. Operation inventory built in code; output validated
+  against the spec (coverage, method/path, evidence pointers); one correction retry.
+- `a01_manager`: Agent SDK orchestrator — 7 intents, plan derived in code, stage
+  preconditions, PreToolUse hook, pipeline state per run; `runners.py` wires a02/a03/a05/a06.
+- `ecvt run --manager`: the run through the Manager; artifacts exported to the M1 files.
+- a03 takes a02's rules, gaps and workflows as optional input (M2-T2).
+- `scripts/n_run.py`: catch rate over N runs (min / median / max).
+- Evals: a01 (12, stub stages, fault injection) and a02 (12) datasets and adapters.
+- `gates/M2.yaml`; ADR 0010 (plugin slot is a string); `/test` and `/review` commands.
+
+### Changed
+- `ecvt.llm.structured_call`: several tools (`tool_choice: any`) and system blocks.
+- `claude-agent-sdk` pinned to 0.2.187; `jsonschema` added.
+
 ## [0.3.0] - 2026-11-02
 M1 — the Scenario → Execution → Evaluation chain, runnable in one command.
 
