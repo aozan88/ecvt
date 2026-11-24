@@ -1,9 +1,8 @@
 # Architecture
 
-> v1 · 2026-11-19 · Max 10 pages. The M1 chain (Scenario → Execution →
-> Evaluation) is live on `main` (v0.3.0). Manager (a01) and Domain
-> Intelligence (a02) describe the M2 design on `feature/manager` and
-> `feature/domain-intelligence`, not merged yet. Stage contracts, context
+> v1 · 2026-11-24 · Max 10 pages. The M1 chain (Scenario → Execution →
+> Evaluation) and the M2 additions — Manager (a01) and Domain Intelligence
+> (a02) — are all live on `main` (PRs #25, #26). Stage contracts, context
 > passing and error handling: [`pipeline.md`](pipeline.md).
 
 ## 1. System context

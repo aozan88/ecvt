@@ -7,6 +7,7 @@ scenarios supplied via --scenarios so no model call is needed.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import socket
 import subprocess
@@ -338,3 +339,28 @@ def test_report_on_target_without_baseline(live_target, scenarios_file, tmp_path
     assert code == 0
     assert "no baseline" in capsys.readouterr().out
     assert not (out / "report.md").exists()
+
+
+# --- every entry point reads .env ------------------------------------------
+
+
+def test_main_reads_dotenv_before_running(monkeypatch):
+    """`.env` is where the project keeps ANTHROPIC_API_KEY (.env.example), but
+    only the eval runner read it: `ecvt run` died with "Could not resolve
+    authentication method" unless the key happened to be exported."""
+    called: list[bool] = []
+    monkeypatch.setattr("ecvt.cli.load_env", lambda: called.append(True))
+    main([])  # bare command: prints help, but load_env must already have run
+    assert called == [True]
+
+
+def test_entry_points_call_load_env():
+    """The entry points that need a key, so the next one added is noticed."""
+    import agents.a02_domain_intelligence.agent as a02
+    import agents.a03_scenario_generator.agent as a03
+    import agents.a06_evaluation.agent as a06
+    from ecvt import evals
+
+    for module in (a02, a03, a06, evals):
+        src = inspect.getsource(module.main)
+        assert "load_env()" in src, module.__name__

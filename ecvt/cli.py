@@ -29,7 +29,7 @@ from typing import Any
 
 from agents.a06_evaluation.agent import DEFAULT_JUDGE_PARALLEL
 from ecvt.execution import DEFAULT_BASE_URL, RunnerConfig, run_scenarios
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage
+from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage, load_env
 from ecvt.reporting import (
     REPO_ROOT,
     TREND_DOC,
@@ -396,6 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env()
     parser = build_parser()
     args = parser.parse_args(argv)
 

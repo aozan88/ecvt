@@ -47,7 +47,7 @@ include = ["ecvt*", "agents*", "plugins*"]
 # Agents read their own prompts at runtime (`load_system_prompt()`), so the
 # markdown and schema files travel with the code, not just the .py files.
 [tool.setuptools.package-data]
-"*" = ["*.md", "*.json", "*.jsonl"]
+"*" = ["*.md", "*.json", "*.jsonl", "*.yaml", "*.yml"]
 
 [tool.ruff]
 line-length = 100
