@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -165,6 +166,105 @@ def run_chain(args: argparse.Namespace) -> int:
     return 0
 
 
+def manager_request(target: str, plugin: str) -> str:
+    """What `ecvt run --manager` asks the Manager. Slots are spelled out so the
+    intent and slot extraction is not what a CLI run is testing."""
+    return (
+        f"Run a full validation of target_system={target} with plugin={plugin}: "
+        "build the domain model, generate scenarios, execute them and score the results."
+    )
+
+
+def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0.0) -> Path:
+    """Turn the Manager's per-stage JSON artifacts into the M1 file set
+    (scenarios / executions / scores .jsonl + run.json) so reporting is unchanged."""
+    from ecvt.results import ExecutionRecord
+    from ecvt.schema import ScenarioSet
+    from ecvt.scoring import ScenarioScore
+
+    run_dir = runs_dir / state["run_id"]
+
+    def artifact(stage: str) -> dict[str, Any] | None:
+        ref = state["stages"][stage]["artifact_ref"]
+        return json.loads((runs_dir / ref).read_text(encoding="utf-8")) if ref else None
+
+    if (sg := artifact("scenario_gen")) is not None:
+        write_scenarios_jsonl(
+            run_dir / "scenarios.jsonl", ScenarioSet.model_validate(sg["scenario_set"])
+        )
+    if (ex := artifact("execution")) is not None:
+        write_executions_jsonl(
+            run_dir / "executions.jsonl",
+            [ExecutionRecord.model_validate(r) for r in ex["records"]],
+        )
+    if (ev := artifact("evaluation")) is not None:
+        write_scores_jsonl(
+            run_dir / "scores.jsonl", [ScenarioScore.model_validate(x) for x in ev["scores"]]
+        )
+
+    stage_usage = [state["stages"][s].get("usage") or {} for s in state["plan"]]
+    session = state.get("manager_session") or {}
+    subagent_cost = sum(float(u.get("cost_usd") or 0) for u in stage_usage)
+    manager_cost = float(session.get("total_cost_usd") or 0)
+    meta = {
+        "target": state["intent"]["slots"].get("target_system") if state["intent"] else None,
+        "base_url": os.environ.get("ECVT_BASE_URL", DEFAULT_BASE_URL),
+        "via": "manager",
+        "run_id": state["run_id"],
+        "elapsed_s": round(elapsed_s, 3),
+        "status": state["status"],
+        "stages": {s: state["stages"][s]["status"] for s in state["plan"]},
+        "judged": (state["stages"]["evaluation"].get("metrics") or {}).get("judged"),
+        "judge_enabled": True,
+        "model": os.environ.get("ECVT_SUBAGENT_MODEL"),
+        "usage": {
+            "total_tokens": sum(int(u.get("total_tokens") or 0) for u in stage_usage),
+            "cost_usd": round(subagent_cost + manager_cost, 6),
+            "subagent_cost_usd": round(subagent_cost, 6),
+            "manager_cost_usd": round(manager_cost, 6),
+            "manager_turns": session.get("num_turns"),
+        },
+    }
+    (run_dir / "run.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return run_dir
+
+
+def run_via_manager(args: argparse.Namespace) -> int:
+    """M2-T4: the same run, routed through the Manager (intent -> plan -> 4 stages)."""
+    from agents.a01_manager.agent import new_run_id, run_manager
+
+    os.environ["ECVT_BASE_URL"] = args.base_url
+    os.environ["ECVT_SUBAGENT_MODEL"] = args.model
+    runs_dir = Path(args.out_dir) / "runs"
+    run_id = new_run_id()
+    started = time.perf_counter()
+    print(f"[manager] {run_id}", flush=True)
+
+    async def drive() -> None:
+        async for msg in run_manager(
+            manager_request(args.target, args.plugin), run_id=run_id, runs_dir=runs_dir,
+            max_budget_usd=args.max_budget,
+        ):
+            for block in getattr(msg, "content", None) or []:
+                if type(block).__name__ == "ToolUseBlock":
+                    print(f"      -> {block.name.split('__')[-1]}", flush=True)
+
+    asyncio.run(drive())
+    state = json.loads((runs_dir / run_id / "state.json").read_text(encoding="utf-8"))
+    for s in state["plan"]:
+        rec = state["stages"][s]
+        print(f"      {s}: {rec['status']} (attempts {rec['attempts']}) {rec['summary'] or ''}")
+    out_dir = export_run_files(state, runs_dir, time.perf_counter() - started)
+    print(f"      {state['status']} in {time.perf_counter() - started:.1f}s → {out_dir}/")
+    if (state["result"] or {}).get("summary"):
+        print(f"      {state['result']['summary']}")
+    if state["status"] == "completed" and (args.report or args.record):
+        _write_report(args, out_dir)
+    return 0 if state["status"] == "completed" else 1
+
+
 def _write_report(args: argparse.Namespace, out_dir: Path) -> None:
     """Catch rate against the target's baseline, if it has one.
 
@@ -253,6 +353,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also write report.md with the catch rate against the target's baseline.",
     )
     run.add_argument(
+        "--manager",
+        action="store_true",
+        help="Route the run through the Manager (M2): intent, plan, then all four stages.",
+    )
+    run.add_argument("--plugin", default="rest_api", help="Plugin slot for --manager.")
+    run.add_argument(
+        "--max-budget", type=float, default=2.0, help="USD cap on the Manager's own turns."
+    )
+    run.add_argument(
         "--record",
         action="store_true",
         help=f"Write the report and append a row to {TREND_DOC.name}. Implies --report.",
@@ -269,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        return run_chain(args)
+        return run_via_manager(args) if args.manager else run_chain(args)
     except StageError as exc:
         print(f"\nStopped: {exc}", file=sys.stderr)
         return 1
