@@ -130,9 +130,19 @@ def build_domain_model(
     task: str = DEFAULT_TASK,
     client: Any | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
-    max_attempts: int = 2,
+    max_attempts: int = 3,
 ) -> DomainResult:
-    """Run a02 on one spec. max_attempts=2: first try + one correction (Project 02)."""
+    """Run a02 on one spec.
+
+    max_attempts=3, not 2: DomainModel validates in two layers and Pydantic
+    reports them in sequence, not together. A field error (an entity whose
+    identifier is not among its fields) stops validation before the model-level
+    validator runs, so the cross-field rules (a `not_specified` verdict needs a
+    matching gap) only become visible once the field error is fixed. Two
+    attempts could surface the second layer but never answer it — measured on
+    wallet-api, where a02 failed attempt 1 on the identifier and attempt 2 on an
+    ownership gap (2026-11-24).
+    """
     spec = load_spec(spec_path)
     inventory = build_inventory(spec)
     context = {"spec": spec, "inventory": inventory}

@@ -14,7 +14,7 @@ import pytest
 from agents.a02_domain_intelligence import agent as di
 from ecvt.evals import AdapterContext, EvalCase, adapt_domain_intelligence, score_schema_valid
 from ecvt.llm import StructuredCallError
-from tests.test_scenario_generator import FakeClient, FakeToolUse
+from tests.test_scenario_generator import FakeClient, FakeToolUse, correction_text
 
 PROMPT = Path("agents/a02_domain_intelligence/system_prompt.md").read_text(encoding="utf-8")
 
@@ -99,17 +99,20 @@ def test_bad_pointer_is_sent_back_then_fixed(parcel_spec):
                          FakeToolUse("emit_domain_model", parcel_model())])
     res = di.build_domain_model(spec_path=parcel_spec, client=client)
     assert res.call.attempts == 2
-    retry = client.messages.calls[1]["messages"][1]["content"]
+    retry = correction_text(client)
     assert "#/components/schemas/Nope" in retry and "does not resolve" in retry
 
 
-def test_gives_up_after_one_correction(parcel_spec):
+def test_gives_up_after_the_last_correction(parcel_spec):
+    """Three attempts, then StructuredCallError — DomainModel validates in two
+    layers that Pydantic reports in sequence, so the budget is first try plus two
+    corrections (see build_domain_model)."""
     bad = parcel_model()
     bad["operations"] = bad["operations"][:1]  # misses deliver_parcel
-    client = FakeClient([FakeToolUse("emit_domain_model", bad)] * 2)
+    client = FakeClient([FakeToolUse("emit_domain_model", bad)] * 3)
     with pytest.raises(StructuredCallError):
         di.build_domain_model(spec_path=parcel_spec, client=client)
-    assert len(client.messages.calls) == 2
+    assert len(client.messages.calls) == 3
 
 
 def test_eval_adapter_validates_against_the_spec(parcel_spec):

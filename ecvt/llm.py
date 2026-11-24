@@ -223,14 +223,72 @@ def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _tool_input(response: Any, tool_names: set[str]) -> tuple[str, dict[str, Any]] | None:
+def _tool_use_block(response: Any, tool_names: set[str]) -> Any | None:
+    """The first tool_use block for one of `tool_names`, or None.
+
+    The block itself, not just its input: a correction turn has to answer it by
+    id, and the block is what carries the model's rejected object back into the
+    next request.
+    """
     for block in getattr(response, "content", None) or []:
         name = getattr(block, "name", None)
-        if getattr(block, "type", None) == "tool_use" and name in tool_names:
-            data = getattr(block, "input", None)
-            if isinstance(data, dict):
-                return name, data
+        is_call = getattr(block, "type", None) == "tool_use" and name in tool_names
+        if is_call and isinstance(getattr(block, "input", None), dict):
+            return block
     return None
+
+
+def _correction_instruction(label: str) -> str:
+    return (
+        f"Call {label} again. Fix only what the error names and keep everything "
+        "else exactly as you had it. Return the complete object, not a patch."
+    )
+
+
+def _correction_messages(
+    user: str, response: Any, block: Any, failure: str, label: str
+) -> list[dict[str, Any]]:
+    """The conversation for one more attempt, with the rejected attempt still in it.
+
+    The rejected tool_use stays in the transcript and the error comes back as its
+    `tool_result`, so "keep everything else" is an instruction the model can
+    follow — it can see its own object. Replacing the attempt with a bare user
+    message made every retry a fresh generation instead: a02 on wallet-api failed
+    attempt 1 on an entity identifier and attempt 2 on an unrelated ownership gap,
+    5 of 12 eval cases passing (2026-11-24). The errors moved rather than
+    converged, because there was nothing to converge on.
+    """
+    head: list[dict[str, Any]] = [{"role": "user", "content": user}]
+    instruction = _correction_instruction(label)
+    if block is None or getattr(block, "id", None) is None:
+        # Nothing to answer: the model sent no tool call (or a fake client sent
+        # no id). Say it in a plain turn rather than forge a tool_result.
+        return head + [
+            {
+                "role": "user",
+                "content": (
+                    f"Your previous output was rejected by schema validation:\n\n"
+                    f"{failure}\n\n{instruction}"
+                ),
+            }
+        ]
+    return head + [
+        {"role": "assistant", "content": list(getattr(response, "content", None) or [])},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "is_error": True,
+                    "content": (
+                        f"Your previous output was rejected by schema validation:\n\n"
+                        f"{failure}\n\n{instruction}"
+                    ),
+                }
+            ],
+        },
+    ]
 
 
 def structured_call(
@@ -294,12 +352,12 @@ def structured_call(
         )
         usage.add_response(response)
 
-        found = _tool_input(response, names)
-        if found is None:
+        block = _tool_use_block(response, names)
+        if block is None:
             failures.append(f"attempt {attempt}: no {label} tool call in response")
         else:
-            called, data = found
-            data = coerce_json_strings(data)
+            called = block.name
+            data = coerce_json_strings(block.input)
             try:
                 validators[called](data)
             except Exception as exc:  # noqa: BLE001 — any validator error becomes feedback
@@ -315,18 +373,7 @@ def structured_call(
 
         if attempt == max_attempts:
             break
-        messages = [
-            {"role": "user", "content": user},
-            {
-                "role": "user",
-                "content": (
-                    "Your previous output was rejected by schema validation:\n\n"
-                    f"{failures[-1]}\n\n"
-                    f"Call {label} again. Fix only what the error names and keep "
-                    "everything else. Return the complete object, not a patch."
-                ),
-            },
-        ]
+        messages = _correction_messages(user, response, block, failures[-1], label)
 
     raise StructuredCallError(
         f"{label} produced no valid output in {max_attempts} attempts",
