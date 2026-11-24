@@ -215,6 +215,8 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
         "status": state["status"],
         "stages": {s: state["stages"][s]["status"] for s in state["plan"]},
         "judged": (state["stages"]["evaluation"].get("metrics") or {}).get("judged"),
+        # Always on: --no-judge is refused with --manager (MANAGER_UNSUPPORTED),
+        # so there is no run through here with the judge off.
         "judge_enabled": True,
         "model": os.environ.get("ECVT_SUBAGENT_MODEL"),
         "usage": {
@@ -229,6 +231,30 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return run_dir
+
+
+# Flags run_chain honours that run_via_manager cannot: a stage runner is called
+# with a `stage_input` dict (run_id, stage, slots, upstream — see
+# agents/a01_manager/runners.py) that has nowhere to carry them. Ignoring one
+# silently turned a measurement into a wrong measurement: `n_run.py --manager
+# --scenarios <set>` reported the scenario set as frozen while the Manager
+# generated a fresh one every run. They are refused instead.
+MANAGER_UNSUPPORTED = ("scenarios", "no_judge", "per_category", "timeout", "max_parallel")
+
+
+def unsupported_with_manager(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[str]:
+    """The --manager-incompatible flags this invocation actually set.
+
+    Compared against a bare `run`, not `parser.get_default()`: these options are
+    declared on the `run` subparser, so the top-level parser reports None for
+    every one of them and each would read as changed.
+    """
+    bare = parser.parse_args(["run"])
+    return [
+        "--" + dest.replace("_", "-")
+        for dest in MANAGER_UNSUPPORTED
+        if getattr(args, dest, None) != getattr(bare, dest, None)
+    ]
 
 
 def run_via_manager(args: argparse.Namespace) -> int:
@@ -376,6 +402,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command != "run":
         parser.print_help()
         return 1
+
+    if args.manager and (ignored := unsupported_with_manager(parser, args)):
+        print(
+            f"--manager cannot honour {', '.join(ignored)}. "
+            "Drop the flag, or run the fixed chain without --manager.",
+            file=sys.stderr,
+        )
+        return 2
 
     try:
         return run_via_manager(args) if args.manager else run_chain(args)

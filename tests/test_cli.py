@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from ecvt.cli import build_parser, main
+from ecvt.cli import build_parser, main, unsupported_with_manager
 from ecvt.schema import ScenarioSet, write_scenarios_jsonl
 from tests.test_scoring import build, transfer
 
@@ -217,6 +217,39 @@ def test_parser_defaults():
     assert args.base_url == "http://localhost:8000"
     assert args.per_category == 2
     assert args.no_judge is False
+
+
+# --- --manager cannot honour every flag of the fixed chain -----------------
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        ["--scenarios", "some/scenarios.jsonl"],
+        ["--no-judge"],
+        ["--per-category", "5"],
+        ["--timeout", "30"],
+        ["--max-parallel", "2"],
+    ],
+)
+def test_manager_refuses_flags_it_cannot_honour(flag, capsys):
+    """These reach the stage runners through nothing, so the Manager would ignore
+    them. `n_run.py --manager --scenarios <set>` reported a frozen scenario set
+    while generating a fresh one every run — refuse rather than mismeasure."""
+    assert main(["run", "--manager", *flag]) == 2
+    err = capsys.readouterr().err
+    assert flag[0] in err
+    assert "cannot honour" in err
+
+
+def test_manager_accepts_the_flags_it_does_honour():
+    """No false positives: these are threaded through and must not be refused."""
+    parser = build_parser()
+    args = parser.parse_args(
+        ["run", "--manager", "--base-url", "http://localhost:9999", "--model", "x",
+         "--plugin", "rest_api", "--max-budget", "1.0", "--report"]
+    )
+    assert unsupported_with_manager(parser, args) == []
 
 
 # --- report integration ----------------------------------------------------
