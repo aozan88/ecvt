@@ -23,8 +23,8 @@ import copy  # noqa: F401  (used by tests 2 and 3: copy.deepcopy(valid_payload()
 import pytest
 
 # Uncomment when first used:
-# from pydantic import ValidationError
-# from agents.a02_domain_intelligence.schema import DomainModel
+from pydantic import ValidationError
+from agents.a02_domain_intelligence.schema import DomainModel
 
 
 def valid_payload() -> dict:
@@ -58,38 +58,44 @@ def valid_payload() -> dict:
     Note: without `context=...` the spec-bound checks (coverage, evidence pointers)
     do not run, so the payload needs no OpenAPI file.
     """
-    raise NotImplementedError("TODO: pick option A or B")
+
+    text = Path("agents/a02_domain_intelligence/system_prompt.md").read_text(encoding="utf-8")
+    start = text.index("emit_domain_model:") + len("emit_domain_model:")
+    end = text.index("</output>", start)
+
+    return json.loads(text[start:end].strip())
+    # raise NotImplementedError("TODO: pick option A or B")
 
 
 def test_valid_payload_is_accepted():
-    pytest.skip("TODO: write me")
+    # pytest.skip("TODO: write me")
     # Pattern:
     model = DomainModel.model_validate(valid_payload())
-    assert model.operations[0].id == "<the id you expect>"
+    assert model.operations[0].id == "create_parcel"
     # One assert on a real field is enough; the point is "no exception".
 
 
 def test_unknown_key_is_rejected():
-    pytest.skip("TODO: write me")
+    # pytest.skip("TODO: write me")
     # Pattern:
-    #   payload = copy.deepcopy(valid_payload())
-    #   payload["notes"] = "the model added this on its own"
-    #   with pytest.raises(ValidationError) as exc:
-    #       DomainModel.model_validate(payload)
-    #   assert exc.value.errors()[0]["type"] == "extra_forbidden"
+    payload = copy.deepcopy(valid_payload())
+    payload["notes"] = "the model added this on its own"
+    with pytest.raises(ValidationError) as exc:
+        DomainModel.model_validate(payload)
+    assert exc.value.errors()[0]["type"] == "extra_forbidden"
     #
     # Bonus (one level down): add an unknown key inside payload["operations"][0]
     # and assert the error's "loc" points there, e.g. ("operations", 0, "<your key>").
 
 
 def test_missing_required_key_is_rejected():
-    pytest.skip("TODO: write me")
+    # pytest.skip("TODO: write me")
     # Pattern:
-    #   payload = copy.deepcopy(valid_payload())
-    #   del payload["glossary"]
-    #   with pytest.raises(ValidationError) as exc:
-    #       DomainModel.model_validate(payload)
-    #   assert exc.value.errors()[0]["type"] == "missing"
+    payload = copy.deepcopy(valid_payload())
+    del payload["glossary"]
+    with pytest.raises(ValidationError) as exc:
+        DomainModel.model_validate(payload)
+    assert exc.value.errors()[0]["type"] == "missing"
     #
     # Bonus: delete a nested key typed `str | None` (required-nullable) and show that
     # the key must be present even though its value may be null — then set it to None
