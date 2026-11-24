@@ -10,7 +10,7 @@ Division of labour
 - AgentDefinitions: thin dispatch adapters. Each may call exactly one stage tool; a
   PreToolUse hook rejects any other caller, including the Manager's main thread.
 
-Tested against claude-agent-sdk 0.2.172 (the delegation tool is "Agent"; older SDKs call it "Task").
+Pinned to claude-agent-sdk 0.2.187 in pyproject.toml (the delegation tool is "Agent"; older SDKs call it "Task").
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def new_run_id() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stage runner contract (implemented by a02/a03/a05/a06 — wire up in DevLog_ECVT)
+# Stage runner contract (implemented in runners.py for a02/a03/a05/a06)
 # ---------------------------------------------------------------------------
 class StageError(Exception):
     """Raised by a stage runner. retryable=True for transient faults (rate limit, timeout,
@@ -124,16 +124,11 @@ StageRunner = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 def load_stage_runners() -> dict[str, StageRunner]:
-    """Adapters from the StageRunner contract to each subagent's real entry point.
+    """Adapters from the StageRunner contract to each subagent's real entry point
+    (agents/a01_manager/runners.py). Tests and evals pass ``runners=`` stubs instead."""
+    from agents.a01_manager.runners import RUNNERS
 
-    Not wired yet (DevLog_ECVT). Targets per ADR 0009:
-    - domain_intel → agents.a02_domain_intelligence (scaffold, M2)
-    - scenario_gen → agents.a03_scenario_generator.agent.generate_scenario_set
-    - execution    → agents.a05_execution (run_scenarios)
-    - evaluation   → agents.a06_evaluation.agent.score_scenarios
-    Until then, pass ``runners=`` to run_manager (stubs for eval).
-    """
-    raise NotImplementedError("Stage runner adapters not wired yet; pass runners= explicitly.")
+    return dict(RUNNERS)
 
 
 def list_plugins(plugins_dir: Path = PLUGINS_DIR) -> list[str]:

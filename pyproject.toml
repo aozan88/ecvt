@@ -16,7 +16,8 @@ license = { text = "MIT" }
 # three failures, all of them async tests that never got to run.
 dependencies = [
   "anthropic>=2",
-  "claude-agent-sdk",
+  "claude-agent-sdk==0.2.187",  # subagent tool is "Agent" (older SDKs: "Task")
+  "jsonschema",
   "httpx",
   "pydantic>=2",
   "python-dotenv",
