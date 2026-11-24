@@ -1,11 +1,66 @@
 # Validation Pipeline
 
-> STUB — Manager -> Domain Intel -> Scenario Gen -> Execution -> Eval -> (Regression) -> (Reporting) -> (Knowledge).
+> v1 · 2026-11-19 · Max 2 pages. M1 chain live on `main`; the Manager-driven
+> flow is the M2 design on `feature/manager`. Patterns and rationale:
+> [`architecture.md`](architecture.md) §3.
 
-## TODO
+## 1. Flow
 
-- [ ] Per-stage input/output contracts
-- [ ] Context passing between agents (Manager-owned)
-- [ ] Error / retry / timeout handling
-- [ ] Mermaid pipeline diagram
-- [ ] Remove the STUB banner when this doc is complete.
+```mermaid
+flowchart TD
+    IN[Request text] --> RI[Manager: record_intent]
+    RI -->|out_of_scope| REJ[reject]
+    RI -->|missing slot or low confidence| ASK[ask_user]
+    RI -->|run_status| ST[answer_status]
+    RI -->|dispatch| PLAN[Code: INTENT_PLAN → plan]
+    PLAN --> S1[domain_intel] --> S2[scenario_gen] --> S3[execution] --> S4[evaluation]
+    S4 --> OUT[manager_output → checked by code → state.result]
+```
+
+Each stage runs only if it is in the plan and every earlier planned stage
+succeeded.
+
+## 2. Intent → plan (routing)
+
+| Intent | Stages run | Required slots |
+|---|---|---|
+| `full_validation` | domain_intel → scenario_gen → execution → evaluation | target_system, plugin |
+| `generate_scenarios` | domain_intel → scenario_gen | target_system, plugin |
+| `domain_analysis` | domain_intel | target_system, plugin |
+| `execute_scenarios` | execution → evaluation | scenario_set_ref, plugin |
+| `evaluate_results` | evaluation | execution_ref |
+| `run_status` | none — reads an existing run | run_ref |
+| `out_of_scope` | none — rejected (wrong domain, stage not available, framework request) | — |
+
+## 3. Stage contracts
+
+| Stage | Input | Output | Artifact |
+|---|---|---|---|
+| domain_intel (a02) | OpenAPI spec | DomainModel | `domain_intel.json` |
+| scenario_gen (a03) | spec in M1; DomainModel from M2-T2 | ScenarioSet, 7 categories | `scenarios.jsonl` |
+| execution (a05) | ScenarioSet + target via plugin | one execution record per scenario | `executions.jsonl` |
+| evaluation (a06) | execution records + ground truth | one score per scenario, catch rate | `scores.jsonl` |
+
+M2 runner contract (every stage):
+
+```python
+def run(stage_input: dict) -> dict
+# stage_input = {"run_id", "stage", "slots", "upstream": {stage: artifact_path}}
+# returns       {"artifact", "summary", "metrics", "usage"}
+# on failure    raise StageError(msg, retryable=True | False)
+```
+
+## 4. Context passing
+
+The Manager owns the run. Artifacts stay on disk; the next stage receives
+upstream **paths**, and the Manager receives only `artifact_ref` plus a
+≤500-character summary. No stage reads another stage's context.
+
+## 5. Errors, retries, limits
+
+| Level | Rule | Source |
+|---|---|---|
+| Target call | Errors are returned as data, never raised. Transient network errors: max 2 retries with backoff. A received HTTP status is never retried — it is the observation | ADR 0006 |
+| Stage | `StageError(retryable=True)` (rate limit, timeout, schema-invalid tool output) → one retry; anything else stops the plan | `MAX_ATTEMPTS = 2` |
+| Precondition | Not in plan, upstream failed, attempts exhausted → `blocked` | `precondition()` |
+| Manager | At most 24 turns; if no `manager_output` arrives, `finalize_guard` closes the run as failed; a "completed" claim that contradicts state is rejected | `MAX_MANAGER_TURNS = 24` |
