@@ -44,6 +44,10 @@ MANAGER_MODEL = "sonnet"
 ADAPTER_MODEL = "haiku"
 MAX_MANAGER_TURNS = 24
 MAX_ATTEMPTS = 2  # first try + one retry
+# Ceiling on one stage tool call, well above what a stage needs: each is bounded
+# by its own attempt budget already, so this is only here to stop the CLI's 60s
+# default from cutting a stage off mid-flight (see build_options).
+STAGE_TOOL_TIMEOUT_MS = 600_000
 MIN_CONFIDENCE = 0.6
 
 # ---------------------------------------------------------------------------
@@ -246,7 +250,7 @@ def precondition(state: dict[str, Any], stage: str) -> str | None:
     return None
 
 
-def build_server(store: StateStore, runners: dict[str, StageRunner], plugins: list[str]):
+def build_tools(store: StateStore, runners: dict[str, StageRunner], plugins: list[str]) -> list[Any]:
     @_spec("record_intent")
     async def record_intent(args: dict[str, Any]) -> dict[str, Any]:
         state = store.load(args["run_id"])
@@ -326,6 +330,29 @@ def build_server(store: StateStore, runners: dict[str, StageRunner], plugins: li
             }
             try:
                 out = await asyncio.to_thread(runners[stage], stage_input)
+            except asyncio.CancelledError:
+                # The caller gave up on this tool call before the stage returned
+                # — in practice the MCP tool-call timeout (see
+                # STAGE_TOOL_TIMEOUT_MS). CancelledError is a BaseException, so
+                # the `except Exception` arm below never saw it and the record
+                # was left status="running". precondition() then answered the
+                # Manager's retry with "already_running", so a run died on a
+                # stage that had been tried once and never retried (two of three
+                # Manager runs, 2026-11-24). Close the record, then re-raise: a
+                # cancellation is reported, never swallowed.
+                rec.update(
+                    status="failed",
+                    error={
+                        "message": (
+                            f"{stage} was cancelled before it returned "
+                            "(tool-call timeout); its thread may still be running"
+                        ),
+                        "retryable": rec["attempts"] < MAX_ATTEMPTS,
+                    },
+                )
+                rec["finished_at"] = _now()
+                store.save(state)
+                raise
             except StageError as e:
                 rec.update(
                     status="failed",
@@ -414,8 +441,19 @@ def build_server(store: StateStore, runners: dict[str, StageRunner], plugins: li
         store.save(state)
         return _reply({"recorded": True})
 
-    tools = [record_intent, *(stage_tool(s) for s in STAGES), get_run_state, manager_output]
-    return create_sdk_mcp_server(name=SERVER, version="1.0.0", tools=tools)
+    return [record_intent, *(stage_tool(s) for s in STAGES), get_run_state, manager_output]
+
+
+def build_server(store: StateStore, runners: dict[str, StageRunner], plugins: list[str]):
+    """The in-process MCP server the Manager calls its own tools through.
+
+    `build_tools` is separate so a tool's handler can be exercised directly:
+    create_sdk_mcp_server returns an opaque descriptor, and the stage handler is
+    where the attempt bookkeeping lives.
+    """
+    return create_sdk_mcp_server(
+        name=SERVER, version="1.0.0", tools=build_tools(store, runners, plugins)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +510,13 @@ def build_options(server: Any, *, max_budget_usd: float | None = None) -> Claude
         setting_sources=["project"],
         max_turns=MAX_MANAGER_TURNS,
         max_budget_usd=max_budget_usd,
+        # A stage is a whole subagent run, not a function call: a03 generates 14
+        # scenarios with up to four validation attempts, a05 executes them, a06
+        # judges each one. The CLI's default MCP tool-call timeout is 60s, which
+        # killed scenario_gen in two of three Manager runs while the work was
+        # still in flight (2026-11-24). The env mapping is layered over the
+        # inherited environment, so this adds the setting without replacing it.
+        env={"MCP_TOOL_TIMEOUT": str(STAGE_TOOL_TIMEOUT_MS)},
     )
 
 

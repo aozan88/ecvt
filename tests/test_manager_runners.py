@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
+from agents.a01_manager import agent as mgr
 from agents.a01_manager import runners
 from agents.a01_manager.agent import StageError, load_stage_runners
 from agents.a03_scenario_generator.agent import build_user_prompt
@@ -180,3 +183,45 @@ def test_carried_validator_error_is_bounded(monkeypatch):
         runners.run_scenario_gen(_input("scenario_gen", {"target_system": WALLET}))
 
     assert len(str(exc.value)) < runners.LAST_ERROR_CHARS + 200
+
+
+# --- a cancelled stage must not leave the record 'running' -----------------
+
+
+def _stage_handler(server_tools, stage: str):
+    name = mgr.mcp_name(f"run_{stage}").split("__")[-1]
+    return next(t.handler for t in server_tools if t.name.endswith(name))
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stage_is_closed_as_retryable(tmp_path):
+    """A tool-call timeout cancels the awaiting coroutine. CancelledError is a
+    BaseException, so `except Exception` never saw it and the record stayed
+    status="running" — precondition() then answered the retry with
+    "already_running" and the run died on a stage tried once."""
+
+    def cancel(_stage_input):
+        raise asyncio.CancelledError
+
+    store = mgr.StateStore(tmp_path)
+    state = store.create("run_c", "x", "cli")
+    state["intent"] = {"name": "full_validation", "slots": {"target_system": WALLET}}
+    state["plan"] = list(mgr.STAGES)
+    store.save(state)
+
+    tools = mgr.build_tools(store, dict.fromkeys(mgr.STAGES, cancel), ["rest_api"])
+    with pytest.raises(asyncio.CancelledError):
+        await _stage_handler(tools, "domain_intel")({"run_id": "run_c"})
+
+    rec = store.load("run_c")["stages"]["domain_intel"]
+    assert rec["status"] == "failed"  # not "running"
+    assert rec["error"]["retryable"] is True  # the Manager may try again
+    assert "cancelled" in rec["error"]["message"]
+    assert mgr.precondition(store.load("run_c"), "domain_intel") is None
+
+
+def test_stage_tool_timeout_is_raised_above_the_cli_default():
+    """The CLI default is 60s; a stage is a whole subagent run."""
+    options = mgr.build_options(mgr.build_server(mgr.StateStore(Path("/tmp")), {}, []))
+    assert options.env["MCP_TOOL_TIMEOUT"] == str(mgr.STAGE_TOOL_TIMEOUT_MS)
+    assert mgr.STAGE_TOOL_TIMEOUT_MS > 60_000
