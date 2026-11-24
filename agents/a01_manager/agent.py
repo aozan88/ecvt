@@ -507,7 +507,12 @@ def build_options(server: Any, *, max_budget_usd: float | None = None) -> Claude
         hooks={
             "PreToolUse": [HookMatcher(matcher=r"mcp__ecvt__run_.*", hooks=[guard_stage_caller])]
         },
-        setting_sources=["project"],
+        # No project settings: "project" loads the repository's own CLAUDE.md
+        # files into the Manager's context. Those are development-coach rules
+        # written for whoever is building ECVT — including "Turkish responses" —
+        # not instructions for the agent that routes a run. They spend tokens on
+        # every turn and contradict the language the Manager's own prompt sets.
+        setting_sources=[],
         max_turns=MAX_MANAGER_TURNS,
         max_budget_usd=max_budget_usd,
         # A stage is a whole subagent run, not a function call: a03 generates 14
@@ -563,11 +568,43 @@ async def run_manager(
                     "num_turns": getattr(message, "num_turns", None),
                     "total_cost_usd": getattr(message, "total_cost_usd", None),
                     "is_error": getattr(message, "is_error", None),
+                    # Per model, so the orchestration cost can be read apart
+                    # from the work: the Manager runs on Sonnet while the stage
+                    # runners call Haiku, and total_cost_usd alone cannot say
+                    # which spent what.
+                    "model_usage": _model_usage(message),
                 }
                 store.save(state)
             yield message
     finally:
         finalize_guard(store, run_id)
+
+
+def _model_usage(message: Any) -> dict[str, Any]:
+    """`model_usage` from a ResultMessage as plain JSON, one row per model.
+
+    The SDK reports it as objects or as dicts depending on version, so each row
+    is reduced to the fields a run report needs rather than dumped whole.
+    """
+    raw = getattr(message, "model_usage", None) or {}
+    rows: dict[str, Any] = {}
+    for model, usage in raw.items():
+        fields = usage if isinstance(usage, dict) else vars(usage)
+        row = {
+            k: fields.get(k)
+            for k in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+                "cost_usd",
+                "web_search_requests",
+            )
+            if fields.get(k) is not None
+        }
+        if row:
+            rows[str(model)] = row
+    return rows
 
 
 def finalize_guard(store: StateStore, run_id: str) -> None:

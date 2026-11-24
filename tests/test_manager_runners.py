@@ -225,3 +225,61 @@ def test_stage_tool_timeout_is_raised_above_the_cli_default():
     options = mgr.build_options(mgr.build_server(mgr.StateStore(Path("/tmp")), {}, []))
     assert options.env["MCP_TOOL_TIMEOUT"] == str(mgr.STAGE_TOOL_TIMEOUT_MS)
     assert mgr.STAGE_TOOL_TIMEOUT_MS > 60_000
+
+
+# --- Görev 3: context hygiene and per-model accounting ---------------------
+
+
+def test_manager_loads_no_project_settings():
+    """`setting_sources=["project"]` pulled the repository's CLAUDE.md files into
+    the Manager's context: development-coach rules written for whoever is building
+    ECVT, "Turkish responses" among them. They cost tokens every turn and
+    contradict the language the Manager's own prompt sets."""
+    options = mgr.build_options(mgr.build_server(mgr.StateStore(Path("/tmp")), {}, []))
+    assert options.setting_sources == []
+
+
+def test_model_usage_is_reduced_to_reportable_rows():
+    """One row per model, so orchestration spend can be read apart from the work."""
+
+    class Usage:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+
+    result = Usage(
+        model_usage={
+            "claude-sonnet-5-5": Usage(input_tokens=100, output_tokens=20, cost_usd=0.5),
+            "claude-haiku-5-5": {"input_tokens": 9, "output_tokens": 1, "cost_usd": 0.001},
+            "noise": Usage(something_else=1),  # nothing reportable
+        }
+    )
+
+    rows = mgr._model_usage(result)
+    assert set(rows) == {"claude-sonnet-5-5", "claude-haiku-5-5"}  # "noise" dropped
+    assert rows["claude-sonnet-5-5"]["cost_usd"] == 0.5
+    assert rows["claude-haiku-5-5"]["input_tokens"] == 9
+
+
+def test_model_usage_survives_a_message_without_it():
+    assert mgr._model_usage(object()) == {}
+
+
+def test_run_json_carries_per_model_usage(tmp_path):
+    """`manager_model_usage` reaches run.json beside the total it breaks down."""
+    from ecvt.cli import export_run_files
+
+    store = mgr.StateStore(tmp_path)
+    state = store.create("run_mu", "x", "cli")
+    state["intent"] = {"name": "domain_analysis", "slots": {"target_system": WALLET}}
+    state["plan"] = ["domain_intel"]
+    state["stages"]["domain_intel"].update(status="succeeded", usage={"cost_usd": 0.01})
+    state["manager_session"] = {
+        "total_cost_usd": 0.5,
+        "num_turns": 3,
+        "model_usage": {"claude-sonnet-5-5": {"cost_usd": 0.5, "input_tokens": 100}},
+    }
+    state["status"] = "completed"
+
+    meta = json.loads((export_run_files(state, tmp_path) / "run.json").read_text("utf-8"))
+    assert meta["usage"]["manager_cost_usd"] == 0.5  # the existing field is unchanged
+    assert meta["usage"]["manager_model_usage"]["claude-sonnet-5-5"]["cost_usd"] == 0.5
