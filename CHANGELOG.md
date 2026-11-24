@@ -17,6 +17,29 @@ not part of it: the tag records what was released, so it stays where it is.
   gate reporting a release no one else can see. G0-7, G1-8 and G2-9 now use
   `git ls-remote --tags origin`.
 
+### Measured
+a03's `repeat`/`concurrency` omission rate, 8 generations per arm against
+wallet-api on `claude-haiku-5-5`. 0.5.0 put this at "roughly one generation in
+three"; that holds, but only on the Manager path, and the two paths differ more
+than the figure suggested:
+
+| | Valid sets | First attempt | `Field required` | Cost |
+|---|---|---|---|---|
+| Spec only (M1 path) | 8 / 8 | 4 / 8 | 4 | $0.038 |
+| With a02's DomainModel (Manager path) | 6 / 8 | **0 / 8** | 14 | $0.073 |
+
+With the DomainModel in the prompt, no generation validates on its first
+attempt, a quarter produce nothing valid in four, and a03 costs 1.9× as much.
+This is a second cost of M2-T2, alongside its inconclusive effect on the catch
+rate: the DomainModel measurably lowers a03's reliability.
+
+Restoring the defaults was tried as a fix and reverted. Without them the model
+fills 1 everywhere, the set-level check rejects the set, and it does not correct
+when told: 3 of 6 generations exhausted four attempts on `no_race_or_replay`.
+The required fields prevent the omission; the set-level check only detects it.
+Recovering the wasted attempt means getting the numbers stated more reliably —
+prompt or quota work in a03 — not removing the constraint.
+
 ## [0.5.0] - 2026-11-24
 M2 — Domain Intelligence and the Manager; five agents end to end.
 
