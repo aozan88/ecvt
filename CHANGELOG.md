@@ -4,8 +4,31 @@ All notable changes to ECVT are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
-Fixes to the gate itself, found by running G2. They land after `v0.5.0` and are
-not part of it: the tag records what was released, so it stays where it is.
+Fixes to the gate itself, found by running G2, and M3's first P0 work. They land
+after `v0.5.0` and are not part of it: the tag records what was released, so it
+stays where it is.
+
+### Changed
+- a03's wire schema is a union discriminated by `category` (ADR 0011).
+  `StressScenarioDraft` requires `concurrency` at 2 or more — a race is what the
+  category probes, so the schema rules out the value that makes the label a lie.
+  `AdversarialScenarioDraft` requires both numbers without forcing either above
+  1, because the category is wider than replay. The other five categories carry
+  neither field and code supplies 1 and 1. At the default quota the model states
+  8 numbers instead of 28. A plain scenario carrying the fields anyway is
+  tolerated at 1 and refused above it, with the correction naming the category
+  rather than the field. `missing_execution_modes()` stays as the set-level net
+  for a writing set in which nothing replays.
+- The Manager loads no project settings (`setting_sources=[]`). `"project"`
+  pulled the repository's own CLAUDE.md files into its context every turn:
+  development-coach rules written for whoever is building ECVT, "Turkish
+  responses" among them, which cost tokens and contradict the Manager's own
+  prompt.
+- `run.json` carries `usage.manager_model_usage` — tokens and cost per model
+  inside the Manager's session. `manager_cost_usd` stays and is their total;
+  this says which model spent it.
+- `setup/Gemini.md` removed: a STUB for an optional install of a tool the stack
+  does not use (ADR 0001), linked from nothing.
 
 ### Fixed
 - `scripts/gate_check.py` tested `requires_env` against `os.environ` without
