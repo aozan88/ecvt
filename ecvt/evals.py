@@ -660,6 +660,9 @@ ADAPTERS: dict[str, Adapter] = {
 }
 
 
+TARGET_AGENTS = ("a05_execution", "a06_evaluation")
+
+
 def adapter_for(dataset_path: str | Path) -> tuple[str, Adapter | None]:
     """Pick the adapter from the dataset's agent directory."""
     agent = Path(dataset_path).resolve().parent.name
@@ -788,6 +791,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    from dotenv import load_dotenv
+
+    load_dotenv()  # a local .env with ANTHROPIC_API_KEY is enough; the shell may override it
+
     if args.check_only:
         for path in args.datasets:
             try:
@@ -813,7 +820,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    needs_target = any(adapter_for(p)[0] != "a03_scenario_generator" for p in args.datasets)
+    # Only Execution and Evaluation cases call the target; a01 runs on stub stages.
+    needs_target = any(adapter_for(p)[0] in TARGET_AGENTS for p in args.datasets)
     if needs_target and not target_reachable(args.base_url):
         print(
             f"No target at {args.base_url}. Execution and Evaluation cases run against a "
