@@ -191,6 +191,8 @@ class StructuredResult:
     usage: Usage
     attempts: int
     corrections: list[str] = field(default_factory=list)
+    tool_name: str | None = None
+    """Which tool the model called — matters when it may choose between several."""
 
 
 def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
@@ -221,20 +223,21 @@ def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _tool_input(response: Any, tool_name: str) -> dict[str, Any] | None:
+def _tool_input(response: Any, tool_names: set[str]) -> tuple[str, dict[str, Any]] | None:
     for block in getattr(response, "content", None) or []:
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
+        name = getattr(block, "name", None)
+        if getattr(block, "type", None) == "tool_use" and name in tool_names:
             data = getattr(block, "input", None)
             if isinstance(data, dict):
-                return data
+                return name, data
     return None
 
 
 def structured_call(
     *,
-    system: str,
+    system: str | list[str],
     user: str,
-    tool: dict[str, Any],
+    tool: dict[str, Any] | list[dict[str, Any]],
     validate: Any,
     client: _MessagesClient | None = None,
     model: str = DEFAULT_SUBAGENT_MODEL,
@@ -242,10 +245,18 @@ def structured_call(
     max_attempts: int = 3,
     cache_system: bool = True,
 ) -> StructuredResult:
-    """Call Claude, force `tool`, and return input that `validate` accepted.
+    """Call Claude, force a tool call, and return input that `validate` accepted.
 
-    `validate(data)` should raise on invalid input; its error text is sent back
-    to the model as a correction. Raises StructuredCallError if every attempt
+    One tool: it is forced by name. Several tools: the model must call one of
+    them (`tool_choice: any`) and `validate` is a dict of tool name -> validator;
+    `StructuredResult.tool_name` says which one it chose.
+
+    `system` may be a list of texts (e.g. system prompt, then a skill); each
+    becomes its own block and the cache breakpoint goes on the last one, so the
+    whole stable prefix is cached.
+
+    A validator should raise on invalid input; its error text is sent back to
+    the model as a correction. Raises StructuredCallError if every attempt
     fails — the partial Usage is attached so the caller can still log spend.
     """
     if client is None:
@@ -253,9 +264,20 @@ def structured_call(
 
         client = anthropic.Anthropic()
 
-    system_blocks: list[dict[str, Any]] = [{"type": "text", "text": system}]
+    texts = [system] if isinstance(system, str) else list(system)
+    system_blocks: list[dict[str, Any]] = [{"type": "text", "text": t} for t in texts]
     if cache_system:
-        system_blocks[0]["cache_control"] = {"type": "ephemeral"}
+        system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
+
+    tools = [tool] if isinstance(tool, dict) else list(tool)
+    names = {t["name"] for t in tools}
+    if len(tools) == 1:
+        tool_choice: dict[str, Any] = {"type": "tool", "name": tools[0]["name"]}
+        label = tools[0]["name"]
+    else:
+        tool_choice = {"type": "any"}
+        label = " or ".join(t["name"] for t in tools)
+    validators = validate if isinstance(validate, dict) else dict.fromkeys(names, validate)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
     usage = Usage(model=model)
@@ -266,24 +288,29 @@ def structured_call(
             model=model,
             max_tokens=max_tokens,
             system=system_blocks,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": tool["name"]},
+            tools=tools,
+            tool_choice=tool_choice,
             messages=messages,
         )
         usage.add_response(response)
 
-        data = _tool_input(response, tool["name"])
-        if data is None:
-            failures.append(f"attempt {attempt}: no {tool['name']} tool call in response")
+        found = _tool_input(response, names)
+        if found is None:
+            failures.append(f"attempt {attempt}: no {label} tool call in response")
         else:
+            called, data = found
             data = coerce_json_strings(data)
             try:
-                validate(data)
+                validators[called](data)
             except Exception as exc:  # noqa: BLE001 — any validator error becomes feedback
                 failures.append(f"attempt {attempt}: {exc}")
             else:
                 return StructuredResult(
-                    data=data, usage=usage, attempts=attempt, corrections=failures
+                    data=data,
+                    usage=usage,
+                    attempts=attempt,
+                    corrections=failures,
+                    tool_name=called,
                 )
 
         if attempt == max_attempts:
@@ -295,14 +322,14 @@ def structured_call(
                 "content": (
                     "Your previous output was rejected by schema validation:\n\n"
                     f"{failures[-1]}\n\n"
-                    f"Call {tool['name']} again. Fix only what the error names and keep "
+                    f"Call {label} again. Fix only what the error names and keep "
                     "everything else. Return the complete object, not a patch."
                 ),
             },
         ]
 
     raise StructuredCallError(
-        f"{tool['name']} produced no valid output in {max_attempts} attempts",
+        f"{label} produced no valid output in {max_attempts} attempts",
         attempts=failures,
         usage=usage,
     )
