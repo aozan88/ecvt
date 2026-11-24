@@ -158,28 +158,29 @@ class Scenario(BaseModel):
 
 
 class ScenarioDraft(Scenario):
-    """The per-scenario wire format: `repeat` and `concurrency` are required.
+    """The per-scenario wire format.
 
-    On `Scenario` both fields default to 1, which is right for a scenario
-    written by hand or read back from a file. But a defaulted field is an
-    optional field, and the generator left both out of all 14 scenarios —
-    including one titled "Many parallel transfers racing" — even after the
-    prompt spelled the requirement out in two places. A set where every
-    scenario is concurrency=1, repeat=1 cannot reach a race or a double-spend
-    however its categories are labelled.
+    This used to drop `Scenario`'s defaults so that the model had to state
+    `repeat` and `concurrency` on every scenario: a defaulted field is an
+    optional field, and the generator had returned a whole set at 1 — including
+    a scenario titled "Many parallel transfers racing" — even with the prompt
+    spelling the requirement out. The intent was that the decision be taken
+    rather than skipped.
 
-    Dropping the defaults makes the model state a number per scenario, so the
-    decision is taken rather than skipped. Whether the set as a whole actually
-    exercises a race and a replay is a policy question, checked by the
-    generator's validator where a correction can be fed back and retried.
+    What it actually bought was the form, not the meaning. The guarantee that a
+    set reaches a race and a replay comes from the generator's own validator
+    (`missing_execution_modes`, asked only of a set that writes), which the
+    prompt also states; required fields were a second mechanism for the same
+    goal. At the default quota they asked for 28 numbers, 24 of which could only
+    sensibly be 1, and half of all generations spent a whole extra attempt on
+    "Field required" — a mechanical slip that carries no signal about scenario
+    quality. Measured over 8 generations, 4 needed a second attempt for this and
+    nothing else.
+
+    So the defaults are back, and a number is stated where the model means
+    something other than 1. The set-level check still rejects a set that cannot
+    observe a race or a duplicate, and that rejection names what is missing.
     """
-
-    repeat: int = Field(
-        ge=1, le=50, description="Send the action N times (idempotency / replay). 1 = once."
-    )
-    concurrency: int = Field(
-        ge=1, le=50, description="Send the action N times in parallel (race). 1 = no race."
-    )
 
 
 class ScenarioSetDraft(BaseModel):

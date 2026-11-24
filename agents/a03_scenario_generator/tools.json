@@ -158,7 +158,7 @@
           "type": "string"
         },
         "ScenarioDraft": {
-          "description": "The per-scenario wire format: `repeat` and `concurrency` are required.\n\nOn `Scenario` both fields default to 1, which is right for a scenario\nwritten by hand or read back from a file. But a defaulted field is an\noptional field, and the generator left both out of all 14 scenarios —\nincluding one titled \"Many parallel transfers racing\" — even after the\nprompt spelled the requirement out in two places. A set where every\nscenario is concurrency=1, repeat=1 cannot reach a race or a double-spend\nhowever its categories are labelled.\n\nDropping the defaults makes the model state a number per scenario, so the\ndecision is taken rather than skipped. Whether the set as a whole actually\nexercises a race and a replay is a policy question, checked by the\ngenerator's validator where a correction can be fed back and retried.",
+          "description": "The per-scenario wire format.\n\nThis used to drop `Scenario`'s defaults so that the model had to state\n`repeat` and `concurrency` on every scenario: a defaulted field is an\noptional field, and the generator had returned a whole set at 1 — including\na scenario titled \"Many parallel transfers racing\" — even with the prompt\nspelling the requirement out. The intent was that the decision be taken\nrather than skipped.\n\nWhat it actually bought was the form, not the meaning. The guarantee that a\nset reaches a race and a replay comes from the generator's own validator\n(`missing_execution_modes`, asked only of a set that writes), which the\nprompt also states; required fields were a second mechanism for the same\ngoal. At the default quota they asked for 28 numbers, 24 of which could only\nsensibly be 1, and half of all generations spent a whole extra attempt on\n\"Field required\" — a mechanical slip that carries no signal about scenario\nquality. Measured over 8 generations, 4 needed a second attempt for this and\nnothing else.\n\nSo the defaults are back, and a number is stated where the model means\nsomething other than 1. The set-level check still rejects a set that cannot\nobserve a race or a duplicate, and that rejection names what is missing.",
           "properties": {
             "id": {
               "description": "Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.",
@@ -198,14 +198,16 @@
               "$ref": "#/$defs/Expectation"
             },
             "repeat": {
-              "description": "Send the action N times (idempotency / replay). 1 = once.",
+              "default": 1,
+              "description": "Send the action N times (idempotency / replay).",
               "maximum": 50,
               "minimum": 1,
               "title": "Repeat",
               "type": "integer"
             },
             "concurrency": {
-              "description": "Send the action N times in parallel (race). 1 = no race.",
+              "default": 1,
+              "description": "Send the action N times in parallel (race).",
               "maximum": 50,
               "minimum": 1,
               "title": "Concurrency",
@@ -218,9 +220,7 @@
             "category",
             "rationale",
             "action",
-            "expectation",
-            "repeat",
-            "concurrency"
+            "expectation"
           ],
           "title": "ScenarioDraft",
           "type": "object"
