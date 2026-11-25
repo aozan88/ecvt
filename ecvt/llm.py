@@ -347,6 +347,14 @@ def _correction_messages(
     ]
 
 
+def _stuck(failures: list[str]) -> bool:
+    """The last two attempts were rejected for the same reason."""
+    if len(failures) < 2:
+        return False
+    last, previous = (f.split(": ", 1)[-1] for f in failures[-2:][::-1])  # drop "attempt N: "
+    return last == previous
+
+
 def structured_call(
     *,
     system: str | list[str],
@@ -432,7 +440,15 @@ def structured_call(
 
         if attempt == max_attempts:
             break
-        messages = _correction_messages(user, response, block, failures[-1], label)
+        if _stuck(failures):
+            # The same rejection twice in a row: the correction turn is not
+            # working, because the model keeps re-sending the object it can see.
+            # Measured on a03 — every run that exhausted four attempts failed all
+            # four with one identical error, while a fresh generation validates
+            # first time in about two of three. So start over instead.
+            messages = [{"role": "user", "content": user}]
+        else:
+            messages = _correction_messages(user, response, block, failures[-1], label)
 
     raise StructuredCallError(
         f"{label} produced no valid output in {max_attempts} attempts",

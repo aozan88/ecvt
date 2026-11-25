@@ -560,3 +560,29 @@ def test_json_string_problems_ignores_valid_and_non_json_strings():
 
     assert json_string_problems({"a": "[1, 2]", "b": "hello", "c": 3}) == []
     assert "character" in json_string_problems({"a": "[1,}"})[0]
+
+
+def test_same_rejection_twice_starts_the_next_attempt_fresh():
+    """Every a03 run that exhausted four attempts failed all four the same way: the
+    correction turn shows the model its own object and it re-sends it. After two
+    identical rejections the third attempt drops the rejected turns."""
+    stuck = tool_use({"scenarios": "[1,}"})
+    client = FakeClient([stuck, stuck, tool_use(full_payload())])
+
+    _, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 3
+    calls = client.messages.calls
+    assert len(calls[1]["messages"]) == 3  # attempt 2: a correction turn
+    assert len(calls[2]["messages"]) == 1  # attempt 3: the original request only
+    assert calls[2]["messages"][0] == calls[0]["messages"][0]
+
+
+def test_different_rejections_keep_correcting():
+    first = tool_use({"scenarios": "[1,}"})
+    second = tool_use({"scenarios": "[2,}"})
+    client = FakeClient([first, second, tool_use(full_payload())])
+    sg.generate_scenario_set(spec_path=WALLET_SPEC, target="examples/wallet-api", client=client)
+    assert len(client.messages.calls[2]["messages"]) == 3
