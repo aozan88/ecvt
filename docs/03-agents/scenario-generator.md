@@ -88,9 +88,12 @@ chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
 
 ## 8. Known limitations
 
-- **Live failure rate above its measurement.** 3 of 18 live chain runs in M3 ended
-  with "no valid output in 4 attempts", against 1 of 24 measured; the failing runs'
-  validator errors were not kept. Open as its own task.
+- **Exhaustion came from stuck corrections.** In M3, 4 of 60 generations without a
+  fix failed all four attempts with one identical error each time (`field_required`,
+  or `scenarios` sent as broken JSON text). Since then the correction names a JSON
+  syntax error and where it is, and two identical rejections in a row restart from
+  the original request: 24/24 valid, 0 exhausted (CHANGELOG, Measured). The
+  omission itself remains — `Field required` in 8 of 24 generations.
 - With the DomainModel on, the account id is named `account_id` throughout a02's output
   while the target answers `{"id": ...}`; a03 once saved the wrong field (ADR 0012).
 - `system_prompt.md` is 171 lines against a "2 pages" rule and a test bound of 180 —
