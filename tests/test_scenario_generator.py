@@ -532,3 +532,31 @@ def test_dry_run_makes_no_api_call(capsys):
     out = capsys.readouterr().out
     assert "POST /transfers" in out
     assert sg.TOOL_NAME in out
+
+
+def test_broken_json_string_correction_names_the_syntax_error():
+    """Measured live: `scenarios` came back as JSON text with one stray `}`, and the
+    correction said only "Input should be a valid list" — so the model re-sent the
+    identical broken string four times. The correction must say where it broke."""
+    text = json.dumps(full_payload()["scenarios"], separators=(",", ":"))
+    cut = text.index('},{"id"') + 1
+    broken = text[:cut] + "}" + text[cut:]  # one extra closing brace between scenarios
+    client = FakeClient([tool_use({"scenarios": broken}), tool_use(full_payload())])
+
+    _, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 2
+    correction = result.corrections[0]
+    assert "not valid JSON" in correction and f"character {cut}" in correction
+    assert "as a JSON array itself, not as a string" in correction
+    sent_back = json.dumps(client.messages.calls[1]["messages"], default=str)
+    assert "not valid JSON" in sent_back  # the model sees it, not just our log
+
+
+def test_json_string_problems_ignores_valid_and_non_json_strings():
+    from ecvt.llm import json_string_problems
+
+    assert json_string_problems({"a": "[1, 2]", "b": "hello", "c": 3}) == []
+    assert "character" in json_string_problems({"a": "[1,}"})[0]

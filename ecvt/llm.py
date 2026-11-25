@@ -200,6 +200,19 @@ class StructuredCallError(RuntimeError):
         self.attempts = attempts
         self.usage = usage
 
+    def explain(self, what: str, limit: int = 1200) -> str:
+        """A failure message that says what was wrong, not just how often.
+
+        The exception's own message is "<tool> produced no valid output in N
+        attempts" and names no rule; the validator errors are in `attempts`.
+        Dropping them left a failure with nothing to act on — the M3 chain lost
+        the reason for 3 a03 failures in 18 runs that way.
+        """
+        last = self.attempts[-1] if self.attempts else ""
+        if not last:
+            return f"{what}: {self}"
+        return f"{what}: {self}; last error: {last[:limit]}"
+
 
 @dataclass
 class StructuredResult:
@@ -237,6 +250,33 @@ def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(parsed, (list, dict)):
             out[key] = parsed
     return out
+
+
+def json_string_problems(data: dict[str, Any]) -> list[str]:
+    """Explain top-level values sent as JSON text that does not parse.
+
+    `coerce_json_strings` leaves these alone, so the validator only says "Input
+    should be a valid list" — which tells the model nothing it can fix. Measured
+    on a03: the model then re-sent the identical broken string on every retry
+    (same length, same bad character) and exhausted four attempts, 2 runs in 12.
+    Naming the syntax error and where it is gives the retry something to act on.
+    """
+    problems = []
+    for key, value in data.items():
+        if not isinstance(value, str) or not value.strip().startswith(("[", "{")):
+            continue
+        text = value.strip()
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as exc:
+            near = text[max(0, exc.pos - 40) : exc.pos + 20]
+            kind = "array" if text.startswith("[") else "object"
+            problems.append(
+                f"`{key}` arrived as a string of JSON text, and that text is not valid JSON: "
+                f"{exc.msg} at character {exc.pos}, near …{near}…. Send `{key}` as a JSON "
+                f"{kind} itself, not as a string, and check the brackets around that point."
+            )
+    return problems
 
 
 def _tool_use_block(response: Any, tool_names: set[str]) -> Any | None:
@@ -377,7 +417,10 @@ def structured_call(
             try:
                 validators[called](data)
             except Exception as exc:  # noqa: BLE001 — any validator error becomes feedback
-                failures.append(f"attempt {attempt}: {exc}")
+                problems = json_string_problems(block.input)
+                failures.append(
+                    f"attempt {attempt}: {exc}" + "".join(f"\n{p}" for p in problems)
+                )
             else:
                 return StructuredResult(
                     data=data,
