@@ -9,6 +9,24 @@ after `v0.5.0` and are not part of it: the tag records what was released, so it
 stays where it is.
 
 ### Changed
+- a03's few-shot no longer uses the target it is measured on. The example was
+  wallet-api's own three endpoints carrying a scenario titled "Transfer above
+  available balance" — GT-03 in the demo target's ground truth, so the prompt
+  handed the generator one of the ten defects it is scored on finding (root
+  `CLAUDE.md` rule 5). It is now a library-lending surface with three
+  scenarios, one per branch of the category union. The domain-specific wording
+  that travelled with it ("exact-balance", "Money, counters and quantities",
+  the sum-of-balances example of a checkable invariant) is generalised, in
+  `SKILL.md` too, which carried the same leak in its category table and in an
+  anti-pattern illustrated with GT-03.
+- `save` now has a stated rule: it maps a name you choose to a field in the
+  **response body**, and the field name does not come from the path parameter
+  that will carry it. The old example demonstrated this by accident and never
+  said it, so moving the example broke it silently — see Measured.
+- a03 asks for 16000 output tokens rather than `structured_call`'s 8192. A set
+  of 14 scenarios runs past 8192, and over the limit `scenarios` comes back as
+  an unterminated JSON string that `coerce_json_strings` cannot parse; the
+  validator then reports "Input should be a valid list", which names nothing.
 - a03's wire schema is a union discriminated by `category` (ADR 0011).
   `StressScenarioDraft` requires `concurrency` at 2 or more — a race is what the
   category probes, so the schema rules out the value that makes the label a lie.
@@ -41,7 +59,69 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
-a03's `repeat`/`concurrency` omission rate, wallet-api on `claude-haiku-5-5`,
+
+#### Catch rate — the reference from here on
+`scripts/n_run.py --runs 5`, wallet-api, `claude-haiku-5-5`. The figures that
+preceded this were taken with a few-shot that named GT-03, so they are kept
+only as history:
+
+| | min | median | max | Cost / run |
+|---|---|---|---|---|
+| Reference (leaking few-shot, `main` before this work) | 5 | 5 | 7 | $0.011 |
+| M1 chain | 4 | **6** | 7 | $0.011 |
+| Through the Manager | 4 | **4** | 6 | $0.077 |
+
+The leak was real, but there is no evidence it inflated the number: with the
+example no longer naming a defect the M1 median reads 6 against 5 before. At
+five runs a side that difference is not one — the honest claim is that removing
+it did not cost catch rate, and the generator finds GT-03 from the spec rather
+than from the prompt. What the change buys is validity, not a corrected figure.
+
+The Manager path reads a median of 4 against the M1 chain's 6, at ten times the
+cost per run. Taken with M2-T2 already being inconclusive, that is the material
+for ADR 0012 rather than a conclusion here.
+
+#### The fault the catch rate caught
+The first run of this measurement put the M1 chain at a median of 1/10 — per
+run 6, 1, 0, 1, 2 — and the cause was the new few-shot, not the domain move.
+Generated scenarios wrote `"save": {"src_id": "account_id"}` against a target
+whose create answers `{"id": ...}`, so the capture failed, setup failed with
+it, and 49 of 70 executions never reached their action. The library example
+saved `{"member_id": "id"}` under a path parameter also called `{member_id}`,
+and the model read that as "the response field is named after the path
+parameter"; the old example's names differed, so it taught the opposite by
+accident. With the save keys renamed to `borrower` and `item`, capture failures
+went from 49 to 0 and the median from 1 to 6. The Manager path showed none of it
+(0 of 70) — a02's DomainModel lists the fields, so nothing is inferred from a
+path.
+
+#### Generation reliability, six prompt variants
+24 generations per arm, spec-only, wallet-api, `claude-haiku-5-5`,
+`scripts/measure_a03.py`:
+
+| Arm | Few-shot | Wording | `max_tokens` | Valid | First attempt | `list_type` | Cost / run |
+|---|---|---|---|---|---|---|---|
+| A | wallet | original | 8192 | 24/24 | 17/24 | 0/24 | $0.0039 |
+| D | wallet | generalised | 8192 | 19/24 | 14/24 | 4/24 | $0.0059 |
+| B | library, `edge` only | generalised | 8192 | 16/24 | 5/24 | 5/24 | $0.0084 |
+| C | + `stress` | generalised | 8192 | 21/24 | 5/24 | 8/24 | $0.0076 |
+| E | + `stress` | generalised | 16000 | 21/24 | 7/24 | 5/24 | $0.0068 |
+| F | + `adversarial` | generalised | 16000 | **23/24** | **15/24** | **0/24** | **$0.0045** |
+
+Read in pairs: generalising the wording cost something (A→D), moving the
+example's domain cost most (D→B, first-attempt 14/24 to 5/24), `stress`
+recovered valid sets but not the first-attempt rate (B→C), the token ceiling
+alone did little (C→E), and the third example did the work (E→F, 7/24 to
+15/24). F lands within two runs of A while no longer naming a defect, at 15%
+more per run than A and 41% less than C.
+
+Three conclusions in this session were drawn at eight runs and reversed on more
+data — a spec-only "regression", C "making things worse", and the few-shot
+"raising" the catch rate. Eight runs do not separate these variants; the arms
+above are twenty-four for that reason.
+
+#### `repeat`/`concurrency` omission under the category union
+a03's omission rate, wallet-api on `claude-haiku-5-5`,
 `scripts/measure_a03.py`. "Before" is the single wire model that asked for both
 numbers on every scenario; "after" is the category union.
 

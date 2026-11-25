@@ -37,6 +37,18 @@ AGENT_NAME = "scenario_generator"
 TOOL_NAME = "scenario_generator_output"
 DEFAULT_PER_CATEGORY = 2
 DEFAULT_MAX_ATTEMPTS = 4  # why 4: see generate_scenario_set
+MAX_OUTPUT_TOKENS = 16000
+"""Room for a whole set, rather than structured_call's 8192 default.
+
+A set of 14 scenarios, each with setup steps, an action, an expectation and
+probes, runs past 8192 output tokens. Over the limit the tool input comes back
+cut mid-string, and `scenarios` then arrives as an unterminated JSON string
+that `coerce_json_strings` cannot parse — the validator reports it as
+"Input should be a valid list", which says nothing about the real cause. That
+error appeared in 5 to 8 of 24 generations across three prompt variants and in
+none of the fourth, whose output happened to be shorter. a02 already asks for
+16000 for the same reason.
+"""
 
 
 def load_system_prompt() -> str:
@@ -196,6 +208,7 @@ def generate_scenario_set(
         validate=_make_validator(),
         client=client,
         model=model,
+        max_tokens=MAX_OUTPUT_TOKENS,
         max_attempts=max_attempts,
     )
     draft = ScenarioSetDraft.model_validate(result.data)

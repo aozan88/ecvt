@@ -21,7 +21,7 @@ Each scenario is one probe:
 
 Cover all seven categories:
 - `happy` — the intended path, so a baseline exists
-- `edge` — boundaries: zero, empty, maximum, exact-balance, self-reference
+- `edge` — boundaries: zero, empty, maximum, exactly the stated limit, self-reference
 - `stress` — volume and concurrency; use `concurrency` for races
 - `security` — authorization and ownership: acting on another party's resource
 - `negative` — malformed or invalid input that must be rejected
@@ -33,14 +33,19 @@ Cover all seven categories:
 <constraints>
 - Use only the paths, methods and fields in the given API surface. Never invent
   an endpoint, a field or an auth header that is not listed.
-- Create your own state. If a scenario needs an account, a record or a balance,
-  build it in `setup` and capture ids with `save`, then reference them as
-  `{placeholder}`. Never assume a record already exists.
+- Create your own state. If a scenario needs a record, something to attach it to
+  or a starting quantity, build it in `setup` and capture ids with `save`, then
+  reference them as `{placeholder}`. Never assume a record already exists.
+- **`save` maps a name you choose to a field in the response body.** The field
+  name comes from the response, not from the path parameter that will later
+  carry it: a spec with `/things/{thing_id}` usually still answers `{"id": ...}`
+  on create. Reading a field the response does not have fails the whole
+  scenario before its action runs.
 - `expectation.expected_status` and `expected_behavior` describe **correct**
   behaviour — what a well-built system should do. Do not predict or describe the
   target's actual (possibly wrong) behaviour; discovering that is Execution's job.
-- `invariants` must be checkable against the `probes` you include. If you claim
-  "the sum of balances is unchanged", add the GET calls that read both balances.
+- `invariants` must be checkable against the `probes` you include. A claim about
+  two records needs the GET calls that read both of them.
 - `probes` are read-only: GET only.
 - You are given no defect list and must not assume one. Reason from the spec:
   which field has no stated bound, which operation has no stated owner, which
@@ -51,8 +56,9 @@ Cover all seven categories:
   `concurrency` of 2 or more — one sequential request is not a race. On
   `adversarial`, use `repeat` above 1 for replay or double-submit, and at least
   one scenario in a writing set must do so.
-- Money, counters and quantities deserve particular suspicion: type, sign,
-  bounds, rounding, and what happens when two requests touch them at once.
+- Any quantity the service counts or accumulates deserves particular suspicion:
+  type, sign, bounds, rounding, and what happens when two requests touch it at
+  once.
 - One defect idea per scenario. Do not bundle three probes into one.
 - `rationale` names the failure mode in one sentence — the risk, not a restatement
   of the title.
@@ -73,51 +79,88 @@ No prose outside the tool call.
 <examples>
 <example>
 <api_surface>
-POST /accounts — create_account
-  body: owner (string, required); initial_balance (number, optional, default=0.0)
-GET /accounts/{account_id}/balance — get_balance
-  params: account_id (path, string, required)
-POST /transfers — transfer
-  body: from_account (string, required); to_account (string, required); amount (number, required)
+POST /members — create_member
+  body: name (string, required); tier (string, optional, default="standard")
+POST /titles — add_title
+  body: name (string, required); copies (integer, optional, default=1)
+GET /members/{member_id}/loans — list_loans
+  params: member_id (path, string, required)
+POST /loans — open_loan
+  body: member_id (string, required); title_id (string, required); days (integer, required)
 </api_surface>
 <output>
 {
   "scenarios": [
     {
       "id": "sc-001",
-      "title": "Transfer above available balance",
+      "title": "Open a loan for an implausible term",
       "category": "edge",
-      "severity": "critical",
-      "rationale": "No stated minimum balance, so the source account may be allowed to go negative.",
+      "severity": "high",
+      "rationale": "No stated upper bound on `days`, so a loan may be opened for a term the service cannot honour.",
       "setup": [
-        {
-          "name": "create_source",
-          "method": "POST",
-          "path": "/accounts",
-          "body": {"owner": "alice", "initial_balance": 50.0},
-          "save": {"src_id": "id"}
-        },
-        {
-          "name": "create_target",
-          "method": "POST",
-          "path": "/accounts",
-          "body": {"owner": "bob", "initial_balance": 0.0},
-          "save": {"dst_id": "id"}
-        }
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-1"}, "save": {"borrower": "id"}},
+        {"name": "add_title", "method": "POST", "path": "/titles",
+         "body": {"name": "t-1", "copies": 1}, "save": {"item": "id"}}
       ],
-      "action": {
-        "name": "overdraw",
-        "method": "POST",
-        "path": "/transfers",
-        "body": {"from_account": "{src_id}", "to_account": "{dst_id}", "amount": 500.0}
-      },
+      "action": {"name": "open_long_loan", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 36500}},
       "expectation": {
         "expected_status": [400, 409, 422],
-        "expected_behavior": "The transfer is rejected because the source holds less than the requested amount, and both balances are left untouched.",
-        "invariants": ["source balance is still 50.0", "target balance is still 0.0"],
+        "expected_behavior": "The request is rejected because `days` is outside any term the service can commit to, and no loan is recorded against the member.",
+        "invariants": ["the member holds no loans"],
         "probes": [
-          {"name": "read_source", "method": "GET", "path": "/accounts/{src_id}/balance"},
-          {"name": "read_target", "method": "GET", "path": "/accounts/{dst_id}/balance"}
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
+        ]
+      }
+    },
+    {
+      "id": "sc-002",
+      "title": "Several borrowers take the last copy at once",
+      "category": "stress",
+      "severity": "critical",
+      "rationale": "Nothing states how simultaneous loans against one copy are serialised, so a single copy may be lent more than once.",
+      "repeat": 1,
+      "concurrency": 5,
+      "setup": [
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-2"}, "save": {"borrower": "id"}},
+        {"name": "add_single_copy", "method": "POST", "path": "/titles",
+         "body": {"name": "t-2", "copies": 1}, "save": {"item": "id"}}
+      ],
+      "action": {"name": "borrow_same_copy", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 14}},
+      "expectation": {
+        "expected_status": [201, 409],
+        "expected_behavior": "Exactly one of the five requests opens a loan and the rest are refused; the one copy is never lent twice.",
+        "invariants": ["the member holds exactly one loan"],
+        "probes": [
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
+        ]
+      }
+    },
+    {
+      "id": "sc-003",
+      "title": "The same loan request submitted twice",
+      "category": "adversarial",
+      "severity": "high",
+      "rationale": "No idempotency key is defined, so a resubmitted request may open a second loan for one intent.",
+      "repeat": 2,
+      "concurrency": 1,
+      "setup": [
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-3"}, "save": {"borrower": "id"}},
+        {"name": "add_title", "method": "POST", "path": "/titles",
+         "body": {"name": "t-3", "copies": 2}, "save": {"item": "id"}}
+      ],
+      "action": {"name": "submit_twice", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 7}},
+      "expectation": {
+        "expected_status": [201, 409],
+        "expected_behavior": "The duplicate is recognised and only one loan exists afterwards, whether the second call is accepted as a no-op or refused.",
+        "invariants": ["the member holds exactly one loan"],
+        "probes": [
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
         ]
       }
     }
