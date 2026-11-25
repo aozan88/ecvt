@@ -50,11 +50,21 @@ ERROR_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+UNCLASSIFIED_CHARS = 160
+
+
 def classify(error: str) -> str:
+    """A class name, or `other:` followed by the text.
+
+    A bare "other" is useless: one run came back with five of them and the
+    message had already been thrown away, so the measurement said something
+    went wrong and nothing about what. An unrecognised error carries its own
+    first line instead.
+    """
     for name, needles in ERROR_CLASSES:
         if any(n in error for n in needles):
             return name
-    return "other"
+    return "other: " + " ".join(error.split())[:UNCLASSIFIED_CHARS]
 
 
 def domain_model(path: str | None) -> dict[str, Any] | None:
