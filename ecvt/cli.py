@@ -132,6 +132,7 @@ def run_chain(args: argparse.Namespace) -> int:
         model=args.model,
         use_judge=not args.no_judge,
         max_parallel=args.max_parallel,
+        domain_rules=plugin.domain_rules(),
     )
     if not scores:
         raise StageError("no scenario had a matching execution record")

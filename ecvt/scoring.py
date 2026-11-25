@@ -13,24 +13,29 @@ The rule engine is deliberately **domain-agnostic** (ADR 0003). It checks
 things true of any HTTP API — the status a correct implementation would
 return, that no request produced a 500, that a replay was not silently
 applied twice. It does not try to verify a scenario's natural-language
-invariants ("source balance is still 50.0"); those go to the judge in M1 and
-to the wallet domain plugin in M3-T2, which is where domain rules belong.
+invariants ("source balance is still 50.0"); those go to the judge, and —
+since M3-T2 — to the run plugin's `domain_rules`, which `run_rules` runs
+beside its own checks (ADR 0013).
 
 Nothing here reads `ground_truth.yaml` (ADR 0007).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from statistics import mean
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from ecvt.results import ExecutionRecord, RunOutcome, StepResult
 from ecvt.schema import Scenario
+
+if TYPE_CHECKING:
+    from plugins._base.plugin import DomainRule
 
 
 class Dimension(str, Enum):
@@ -148,9 +153,7 @@ def _check_status(scenario: Scenario, record: ExecutionRecord) -> RuleCheck:
 
 def _check_server_error(record: ExecutionRecord) -> RuleCheck | None:
     """A 5xx is a defect whatever the scenario expected."""
-    offenders = [
-        s for s in record.all_steps if s.status_code is not None and s.status_code >= 500
-    ]
+    offenders = [s for s in record.all_steps if s.status_code is not None and s.status_code >= 500]
     if not offenders:
         return None
     names = ", ".join(f"{s.name}={s.status_code}" for s in offenders)
@@ -218,8 +221,32 @@ def _check_probes(record: ExecutionRecord) -> RuleCheck | None:
     )
 
 
-def run_rules(scenario: Scenario, record: ExecutionRecord) -> DimensionScore:
-    """Deterministic checks. Never calls a model."""
+def _run_domain_rule(
+    rule: DomainRule, scenario: Scenario, record: ExecutionRecord
+) -> RuleCheck | None:
+    """A plugin's rule, isolated: a rule that raises is a rule bug, not a finding
+    about the target, so it is recorded as undecided and scoring carries on."""
+    try:
+        return rule.check(scenario, record)
+    except Exception as exc:  # noqa: BLE001 — one rule must not sink the run
+        return RuleCheck(
+            name=rule.id,
+            verdict=Verdict.INCONCLUSIVE,
+            detail=f"domain rule could not be evaluated: {type(exc).__name__}: {exc}",
+        )
+
+
+def run_rules(
+    scenario: Scenario,
+    record: ExecutionRecord,
+    domain_rules: Sequence[DomainRule] = (),
+) -> DimensionScore:
+    """Deterministic checks. Never calls a model.
+
+    `domain_rules` come from the run's plugin (M3-T2, ADR 0013). They run only
+    on a completed execution, beside the generic checks, and fold the same way:
+    the plugin says whether its rule held; this function decides the verdict.
+    """
     checks: list[RuleCheck] = [_check_outcome(record)]
 
     if record.outcome is RunOutcome.COMPLETED:
@@ -228,6 +255,7 @@ def run_rules(scenario: Scenario, record: ExecutionRecord) -> DimensionScore:
             _check_server_error(record),
             _check_replay_consistency(scenario, record),
             _check_probes(record),
+            *(_run_domain_rule(rule, scenario, record) for rule in domain_rules),
         ):
             if maybe is not None:
                 checks.append(maybe)
@@ -243,13 +271,9 @@ def run_rules(scenario: Scenario, record: ExecutionRecord) -> DimensionScore:
         verdict = Verdict.PASS
 
     decided = [c for c in checks if c.verdict in (Verdict.PASS, Verdict.FAIL)]
-    score = (
-        sum(1 for c in decided if c.verdict is Verdict.PASS) / len(decided) if decided else None
-    )
+    score = sum(1 for c in decided if c.verdict is Verdict.PASS) / len(decided) if decided else None
 
-    return DimensionScore(
-        dimension=Dimension.RULE, verdict=verdict, score=score, checks=checks
-    )
+    return DimensionScore(dimension=Dimension.RULE, verdict=verdict, score=score, checks=checks)
 
 
 def needs_judge(scenario: Scenario, rule_score: DimensionScore) -> bool:

@@ -45,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--label", required=True, help="Folder name under artifacts/nrun/.")
     p.add_argument("--target", default="examples/wallet-api")
     p.add_argument("--manager", action="store_true", help="Route each run through the Manager.")
+    p.add_argument("--plugin", default="rest_api", help="Plugin for every run (M3).")
     p.add_argument("--scenarios", help="Replay this frozen scenarios.jsonl every run (M1 chain).")
     args = p.parse_args(argv)
 
@@ -54,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     for i in range(1, args.runs + 1):
         out_dir = root / f"run{i}"
         cli_args = ["run", "--target", args.target, "--out-dir", str(out_dir)]
+        cli_args += ["--plugin", args.plugin]
         if args.manager:
             cli_args.append("--manager")
         if args.scenarios:
