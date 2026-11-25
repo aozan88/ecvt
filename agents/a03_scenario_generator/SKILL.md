@@ -81,10 +81,10 @@ Category starters for a transactional API:
 | Category | Probe that usually pays off |
 |---|---|
 | happy | the intended flow end to end, as a baseline |
-| edge | exact-balance, zero, empty string, self-reference (from == to) |
+| edge | exactly the stated limit, zero, empty string, self-reference (source == target) |
 | stress | `concurrency: 10` on the same record (2 or more, always) |
 | security | act on a resource created by a different owner |
-| negative | wrong type, missing required field, negative amount |
+| negative | wrong type, missing required field, a negative quantity |
 | adversarial | `repeat: 2` on a non-idempotent write |
 
 `repeat` and `concurrency` are fields of these two categories only — the other
@@ -93,10 +93,10 @@ five do not carry them.
 
 ## Anti-patterns
 
-- **Describing the bug instead of the expectation.** "Balance goes negative" is
-  an observation; Execution makes observations. Write "the transfer is rejected
-  and balances are unchanged".
-- **Unbound placeholders.** `{src_id}` with no `save` that produces it — the
+- **Describing the bug instead of the expectation.** "The counter goes negative"
+  is an observation; Execution makes observations. Write "the request is rejected
+  and the stored values are unchanged".
+- **Unbound placeholders.** `{record_id}` with no `save` that produces it — the
   scenario cannot run. Trace every placeholder to its step.
 - **Invented fields.** An `Idempotency-Key` header that the spec never mentions
   tests ECVT's imagination, not the target.
