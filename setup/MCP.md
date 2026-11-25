@@ -19,7 +19,8 @@ npx -y @modelcontextprotocol/server-slack
 <!-- TODO: where server configs live; keys from .env (BRAVE_API_KEY, GITHUB_PAT, SLACK_BOT_TOKEN) -->
 
 ## Custom MCP (ecvt-eval)
-<!-- TODO: scaffold under mcp-servers/ecvt-eval/; score_response(input, output, criteria) -> 0-1 -->
+`python -m ecvt.eval_server` (stdio). Tools, setup and the Claude Code
+command: `mcp-servers/README.md`; decision: ADR 0014.
 
 ## Next
 → `Environment.md`

@@ -26,6 +26,13 @@ stays where it is.
   `ecvt run --plugin wallet`, the Manager's evaluation stage and
   `python -m agents.a06_evaluation.agent --plugin` apply them; `n_run` gains
   `--plugin`.
+- **ecvt-eval MCP server (M3-T3, ADR 0014).** `python -m ecvt.eval_server`
+  (stdio) exposes `score_response(scenario, execution, plugin)` — the generic
+  rule checks plus the plugin's domain rules — and `list_rules`. a06 now gets
+  every rule dimension from it, one session per run; the judge stays in a06.
+  No in-process fallback: a server that cannot start fails the scoring
+  (`EvalServerError`). Over 10 recorded runs, 282 scorings via stdio match the
+  in-process rules exactly.
 - Architecture docs follow the plugin layer: `architecture.md`, `pipeline.md`,
   agent specs for a05 and a06 (were stubs), `docs/07-plugins/`. `pipeline.md`
   listed ground truth as an input of evaluation; it is not (ADR 0007).
@@ -91,6 +98,12 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
+- **M3-T3, scoring through ecvt-eval.** Offline: 282 recorded scorings over
+  stdio equal the in-process rules. Live, five `--plugin wallet` runs with a06
+  scoring via the server: 7 · 6 · 8 · 7 · 6 (min 6 / median 7 / max 8), level
+  with M3-T2's 6 / 7 / 8. One more attempt failed in a03 before execution —
+  3 of 18 live attempts across M3-T1..T3, against 1 of 24 when a03 was last
+  measured; carried as its own task.
 - **M3-T2, wallet rules, M1 chain.** Paired — the five M3-T1 runs re-scored
   with the same executions and judge verdicts, only the wallet rules added:
   7 · 6 · 7 · 6 · 8 → 7 · 7 · 8 · 8 · 8 (median 7 → 8), unattributed failures

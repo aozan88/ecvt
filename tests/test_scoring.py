@@ -569,6 +569,6 @@ def test_score_scenarios_applies_the_plugin_rules():
 
     s, r = _wallet_case([_xfer("1", "1", 10.0, after=(100.0, 100.0))], [])
     plain, _ = score_scenarios([s], [r], use_judge=False)
-    ruled, _ = score_scenarios([s], [r], use_judge=False, domain_rules=wallet.WALLET_RULES)
+    ruled, _ = score_scenarios([s], [r], use_judge=False, plugin="wallet")
     assert not any(c.name.startswith("wallet.") for d in plain[0].dimensions for c in d.checks)
     assert ruled[0].defect_suspected and "itself" in ruled[0].summary

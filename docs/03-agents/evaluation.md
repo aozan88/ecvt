@@ -1,7 +1,7 @@
 # Agent Spec — Evaluation (a06)
 
-Code: `agents/a06_evaluation/`, `ecvt/scoring.py` · Version 1.1 (M3-T2) · 2026-11-25
-· ADRs 0005, 0007, 0009, 0013
+Code: `agents/a06_evaluation/`, `ecvt/eval_server.py`, `ecvt/scoring.py` · Version 1.2 (M3-T3)
+· 2026-11-25 · ADRs 0005, 0007, 0009, 0013, 0014
 
 ## 1. Role
 
@@ -27,7 +27,12 @@ the Manager stage `run_evaluation`, and `python -m agents.a06_evaluation.agent
 `ground_truth.yaml` is not an input: catch rate is computed afterwards by
 reporting (ADR 0007).
 
-## 4. Rules
+## 4. Rules — in the ecvt-eval MCP server
+
+a06 does not run rules itself: for each scenario it calls `score_response`
+on `ecvt-eval` (`python -m ecvt.eval_server`, stdio, one session per run) and
+gets the rule dimension back. If the server cannot start or refuses an input,
+scoring fails (`EvalServerError`); there is no in-process fallback.
 
 Generic, true of any HTTP API (`ecvt/scoring.py`): execution outcome · status
 in `expected_status` · no 5xx · repeats rejected or not (inconclusive when all

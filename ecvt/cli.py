@@ -123,17 +123,20 @@ def run_chain(args: argparse.Namespace) -> int:
     print("      " + ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items())))
 
     # --- 3. evaluate
-    from agents.a06_evaluation.agent import score_scenarios
+    from agents.a06_evaluation.agent import EvalServerError, score_scenarios
 
     _stage("scoring" + (" (rules only)" if args.no_judge else " (rules + judge)"), 3, total)
-    scores, judge_usage = score_scenarios(
-        scenarios,
-        records,
-        model=args.model,
-        use_judge=not args.no_judge,
-        max_parallel=args.max_parallel,
-        domain_rules=plugin.domain_rules(),
-    )
+    try:
+        scores, judge_usage = score_scenarios(
+            scenarios,
+            records,
+            model=args.model,
+            use_judge=not args.no_judge,
+            max_parallel=args.max_parallel,
+            plugin=plugin.name,
+        )
+    except EvalServerError as exc:
+        raise StageError(str(exc)) from exc
     if not scores:
         raise StageError("no scenario had a matching execution record")
     _merge(usage, judge_usage)
