@@ -33,6 +33,18 @@ stays where it is.
   No in-process fallback: a server that cannot start fails the scoring
   (`EvalServerError`). Over 10 recorded runs, 282 scorings via stdio match the
   in-process rules exactly.
+- **n8n trigger (M3-T5).** `ecvt serve` (standard library, no new
+  dependency): `POST /runs` runs `ecvt run … --report` in a subprocess and
+  answers with status, run directory, the Business recommendation, verdicts,
+  catch rate and cost; `GET /health`. A token is required beyond loopback, one
+  run at a time (409), the target must be a directory under `examples/` with a
+  spec, unknown body fields are refused, and the target's base URL is the
+  server's setting. `workflows/n8n/ecvt-run.json`: Webhook → HTTP Request →
+  Respond to Webhook, passing ECVT's status and body through. Verified with
+  n8n 2.49.6 both by `docker run` (G3-11, now a real check) and by the
+  `docker compose` steps in `setup/n8n.md`. `docker-compose.yml`'s n8n
+  service drops the `N8N_BASIC_AUTH_*` settings n8n 1.0 removed and gains
+  what the workflow needs.
 - **Dev + Business reports (M3-T4).** `ecvt report <run_dir>`, and
   `ecvt run --report`, write `report-business` and `report-dev` as Markdown and
   HTML from one document model, with no model call and no ground truth, so they

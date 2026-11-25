@@ -1,10 +1,14 @@
 # Validation Pipeline
 
-> v1.3 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
+> v1.4 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
 > are both live on `main`. Patterns and rationale:
 > [`architecture.md`](architecture.md) §3.
 
 ## 1. Flow
+
+Entry points: `ecvt run` (fixed chain, or `--manager`), and `ecvt serve`, which
+n8n's webhook calls and which runs `ecvt run … --report` (M3-T5,
+`docs/04-workflows/`).
 
 ```mermaid
 flowchart TD

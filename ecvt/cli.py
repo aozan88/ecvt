@@ -393,6 +393,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("run_dir", help="A run directory written by `ecvt run`.")
 
+    serve = sub.add_parser(
+        "serve", help="HTTP trigger for n8n: POST /runs starts `ecvt run` (M3-T5)."
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Loopback unless a token is set.")
+    serve.add_argument("--port", type=int, default=8090)
+    serve.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Where the target runs.")
+
     run = sub.add_parser("run", help="Generate, execute and score against a target.")
     run.add_argument(
         "--target",
@@ -461,6 +468,16 @@ def main(argv: list[str] | None = None) -> int:
         for path in written:
             print(path)
         return 0
+
+    if args.command == "serve":
+        from ecvt.trigger_server import serve
+
+        load_env()
+        try:
+            return serve(args.host, args.port, args.base_url)
+        except (OSError, ValueError) as exc:
+            print(f"Could not start: {exc}", file=sys.stderr)
+            return 1
 
     if args.command != "run":
         parser.print_help()

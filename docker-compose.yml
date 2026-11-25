@@ -1,15 +1,22 @@
 services:
+  # n8n triggers ECVT runs (M3-T5): workflows/n8n/ecvt-run.json calls `ecvt serve`
+  # on the host. Setup and the import/publish commands: setup/n8n.md.
+  # (N8N_BASIC_AUTH_* were removed in n8n 1.0; the owner account is created on first open.)
   n8n:
     image: n8nio/n8n:latest
     restart: unless-stopped
     ports:
       - "${N8N_PORT:-5678}:5678"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reach `ecvt serve` on the host (Linux too)
     environment:
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - ECVT_TRIGGER_URL=${ECVT_TRIGGER_URL:-http://host.docker.internal:8090}
+      - ECVT_TRIGGER_TOKEN=${ECVT_TRIGGER_TOKEN}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false     # the workflow reads the two values above
+      - N8N_LISTEN_ADDRESS=${N8N_LISTEN_ADDRESS:-0.0.0.0}  # IPv4; '::' fails on hosts without IPv6
     volumes:
       - n8n_data:/home/node/.n8n
+      - ./workflows/n8n:/workflows:ro
 
   redis:
     image: redis:7-alpine
