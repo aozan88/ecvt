@@ -198,9 +198,20 @@ def test_user_prompt_contains_surface_and_no_ground_truth():
 
 
 def test_system_prompt_within_page_limit():
-    """CLAUDE.md for this agent: system_prompt.md max 2 pages."""
+    """Raised from 160 on Ozan's call, for one reason: the example now shows all
+    three branches of the category union.
+
+    The wire schema is a union over `category`, and the generator omitted
+    `repeat`/`concurrency` far more often when the example never used them —
+    first-attempt generations ran at 21% with a single `edge` scenario against
+    71% on the prompt that preceded the union work. Covering `stress` and
+    `adversarial` as well costs lines no other content can give back.
+
+    a03's own CLAUDE.md still says "max 2 pages". That line and this bound
+    disagree now; which one moves is a conventions decision, not this test's.
+    """
     lines = sg.load_system_prompt().splitlines()
-    assert len(lines) <= 160, f"system_prompt.md is {len(lines)} lines"
+    assert len(lines) <= 180, f"system_prompt.md is {len(lines)} lines"
 
 
 # --- generation ------------------------------------------------------------

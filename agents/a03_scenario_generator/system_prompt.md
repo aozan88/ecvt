@@ -133,6 +133,31 @@ POST /loans — open_loan
           {"name": "read_loans", "method": "GET", "path": "/members/{member_id}/loans"}
         ]
       }
+    },
+    {
+      "id": "sc-003",
+      "title": "The same loan request submitted twice",
+      "category": "adversarial",
+      "severity": "high",
+      "rationale": "No idempotency key is defined, so a resubmitted request may open a second loan for one intent.",
+      "repeat": 2,
+      "concurrency": 1,
+      "setup": [
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-3"}, "save": {"member_id": "id"}},
+        {"name": "add_title", "method": "POST", "path": "/titles",
+         "body": {"name": "t-3", "copies": 2}, "save": {"title_id": "id"}}
+      ],
+      "action": {"name": "submit_twice", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{member_id}", "title_id": "{title_id}", "days": 7}},
+      "expectation": {
+        "expected_status": [201, 409],
+        "expected_behavior": "The duplicate is recognised and only one loan exists afterwards, whether the second call is accepted as a no-op or refused.",
+        "invariants": ["the member holds exactly one loan"],
+        "probes": [
+          {"name": "read_loans", "method": "GET", "path": "/members/{member_id}/loans"}
+        ]
+      }
     }
   ]
 }
