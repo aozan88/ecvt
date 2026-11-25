@@ -137,11 +137,9 @@ def load_stage_runners() -> dict[str, StageRunner]:
 
 def list_plugins(plugins_dir: Path = PLUGINS_DIR) -> list[str]:
     """Plugin registry = directories under plugins/. The Manager never hard-codes plugin names."""
-    if not plugins_dir.is_dir():
-        return []
-    return sorted(
-        p.name for p in plugins_dir.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))
-    )
+    from plugins._base.plugin import available
+
+    return available(plugins_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +248,9 @@ def precondition(state: dict[str, Any], stage: str) -> str | None:
     return None
 
 
-def build_tools(store: StateStore, runners: dict[str, StageRunner], plugins: list[str]) -> list[Any]:
+def build_tools(
+    store: StateStore, runners: dict[str, StageRunner], plugins: list[str]
+) -> list[Any]:
     @_spec("record_intent")
     async def record_intent(args: dict[str, Any]) -> dict[str, Any]:
         state = store.load(args["run_id"])

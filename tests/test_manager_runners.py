@@ -119,8 +119,12 @@ def test_manager_run_exports_the_m1_file_set(tmp_path):
     from tests.test_schema import make_scenario
 
     scenario = Scenario.model_validate(make_scenario())
-    record = ExecutionRecord(scenario_id=scenario.id, category=scenario.category.value,
-                             base_url="http://x", outcome=RunOutcome.COMPLETED)
+    record = ExecutionRecord(
+        scenario_id=scenario.id,
+        category=scenario.category.value,
+        base_url="http://x",
+        outcome=RunOutcome.COMPLETED,
+    )
     score = score_with_rules(scenario, record)
     store = StateStore(tmp_path)
     state = store.create("run_x", "x", "cli")
@@ -128,15 +132,20 @@ def test_manager_run_exports_the_m1_file_set(tmp_path):
     state["plan"] = list(STAGES)
     artifacts = {
         "domain_intel": {"rules": []},
-        "scenario_gen": {"scenario_set": ScenarioSet(target=WALLET, spec_title="t",
-                                                     scenarios=[scenario]).model_dump(mode="json")},
+        "scenario_gen": {
+            "scenario_set": ScenarioSet(
+                target=WALLET, spec_title="t", scenarios=[scenario]
+            ).model_dump(mode="json")
+        },
         "execution": {"scenarios": [], "records": [record.model_dump(mode="json")]},
         "evaluation": {"scores": [score.model_dump(mode="json")], "stats": {}},
     }
     for stage, payload in artifacts.items():
-        state["stages"][stage].update(status="succeeded",
-                                      artifact_ref=store.write_artifact("run_x", stage, payload),
-                                      usage={"total_tokens": 10, "cost_usd": 0.01})
+        state["stages"][stage].update(
+            status="succeeded",
+            artifact_ref=store.write_artifact("run_x", stage, payload),
+            usage={"total_tokens": 10, "cost_usd": 0.01},
+        )
     state["status"] = "completed"
     run_dir = export_run_files(state, tmp_path)
     for name in ("scenarios.jsonl", "executions.jsonl", "scores.jsonl", "run.json"):
@@ -163,9 +172,7 @@ def test_stage_failure_carries_the_validator_error(monkeypatch):
         raise boom
 
     monkeypatch.setattr(runners, "_spec_path", lambda target: target)
-    monkeypatch.setattr(
-        "agents.a03_scenario_generator.agent.generate_scenario_set", explode
-    )
+    monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", explode)
     with pytest.raises(StageError) as exc:
         runners.run_scenario_gen(_input("scenario_gen", {"target_system": WALLET}))
 
@@ -176,17 +183,13 @@ def test_stage_failure_carries_the_validator_error(monkeypatch):
 
 def test_carried_validator_error_is_bounded(monkeypatch):
     """A 20-error Pydantic dump should not land in state.json whole."""
-    boom = StructuredCallError(
-        "no valid output", attempts=["x" * 5000], usage=Usage(model="m")
-    )
+    boom = StructuredCallError("no valid output", attempts=["x" * 5000], usage=Usage(model="m"))
 
     def explode(**_kwargs):
         raise boom
 
     monkeypatch.setattr(runners, "_spec_path", lambda target: target)
-    monkeypatch.setattr(
-        "agents.a03_scenario_generator.agent.generate_scenario_set", explode
-    )
+    monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", explode)
     with pytest.raises(StageError) as exc:
         runners.run_scenario_gen(_input("scenario_gen", {"target_system": WALLET}))
 
@@ -343,3 +346,16 @@ def test_run_json_records_the_adr_0012_arm(monkeypatch, tmp_path):
     monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, "off")
     meta = json.loads((export_run_files(state, tmp_path) / "run.json").read_text("utf-8"))
     assert meta["a03_domain_model"] == "off"
+
+
+def test_execution_stage_uses_the_plugin_slot(monkeypatch, tmp_path):
+    """A stub plugin is a non-retryable stage failure, never a REST fallback."""
+    from tests.test_schema import make_scenario
+
+    ref = tmp_path / "scenario_gen.json"
+    ref.write_text(json.dumps({"scenario_set": {"scenarios": [make_scenario()]}}), encoding="utf-8")
+    monkeypatch.setattr("ecvt.evals.target_reachable", lambda *_a, **_k: True)
+    with pytest.raises(StageError) as exc:
+        runners.run_execution(_input("execution", {"plugin": "ikys"}, {"scenario_gen": str(ref)}))
+    assert exc.value.retryable is False
+    assert "no implementation" in str(exc.value)

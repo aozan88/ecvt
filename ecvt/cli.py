@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.a06_evaluation.agent import DEFAULT_JUDGE_PARALLEL
-from ecvt.execution import DEFAULT_BASE_URL, RunnerConfig, run_scenarios
+from ecvt.execution import DEFAULT_BASE_URL
 from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage, load_env
 from ecvt.reporting import (
     REPO_ROOT,
@@ -41,6 +41,8 @@ from ecvt.reporting import (
 from ecvt.results import write_executions_jsonl
 from ecvt.schema import read_scenarios_jsonl, write_scenarios_jsonl
 from ecvt.scoring import summarize, write_scores_jsonl
+from plugins._base.plugin import PluginContext
+from plugins._base.plugin import load as load_plugin
 
 SPEC_NAME = "openapi.json"
 
@@ -67,6 +69,9 @@ def _stage(label: str, index: int, total: int) -> None:
 
 
 def run_chain(args: argparse.Namespace) -> int:
+    # Resolved before anything is spent: an unknown or unimplemented plugin
+    # must fail here, not after a paid scenario-generation call.
+    plugin = load_plugin(args.plugin, PluginContext(base_url=args.base_url, timeout_s=args.timeout))
     out_dir = Path(args.out_dir)
     if args.timestamped:
         out_dir = out_dir / "runs" / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -109,9 +114,8 @@ def run_chain(args: argparse.Namespace) -> int:
         raise StageError("no scenarios to run")
 
     # --- 2. execute
-    _stage(f"running against {args.base_url}", 2, total)
-    config = RunnerConfig(base_url=args.base_url, timeout_s=args.timeout)
-    records = asyncio.run(run_scenarios(scenarios, config))
+    _stage(f"running against {args.base_url} via {plugin.name}", 2, total)
+    records = asyncio.run(plugin.execute(scenarios))
     write_executions_jsonl(executions_path, records)
     outcomes: dict[str, int] = {}
     for record in records:
@@ -257,7 +261,9 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
 MANAGER_UNSUPPORTED = ("scenarios", "no_judge", "per_category", "timeout", "max_parallel")
 
 
-def unsupported_with_manager(parser: argparse.ArgumentParser, args: argparse.Namespace) -> list[str]:
+def unsupported_with_manager(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> list[str]:
     """The --manager-incompatible flags this invocation actually set.
 
     Compared against a bare `run`, not `parser.get_default()`: these options are
@@ -276,6 +282,9 @@ def run_via_manager(args: argparse.Namespace) -> int:
     """M2-T4: the same run, routed through the Manager (intent -> plan -> 4 stages)."""
     from agents.a01_manager.agent import new_run_id, run_manager
 
+    # Same fail-fast as run_chain: the Manager would otherwise spend a02 and a03
+    # before its execution stage found the plugin unusable.
+    load_plugin(args.plugin, PluginContext(base_url=args.base_url))
     os.environ["ECVT_BASE_URL"] = args.base_url
     os.environ["ECVT_SUBAGENT_MODEL"] = args.model
     runs_dir = Path(args.out_dir) / "runs"
@@ -285,7 +294,9 @@ def run_via_manager(args: argparse.Namespace) -> int:
 
     async def drive() -> None:
         async for msg in run_manager(
-            manager_request(args.target, args.plugin), run_id=run_id, runs_dir=runs_dir,
+            manager_request(args.target, args.plugin),
+            run_id=run_id,
+            runs_dir=runs_dir,
             max_budget_usd=args.max_budget,
         ):
             for block in getattr(msg, "content", None) or []:
@@ -376,9 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--model", default=DEFAULT_SUBAGENT_MODEL)
     run.add_argument("--per-category", type=int, default=2)
     run.add_argument("--timeout", type=float, default=10.0)
-    run.add_argument(
-        "--scenarios", help="Reuse an existing scenarios.jsonl instead of generating."
-    )
+    run.add_argument("--scenarios", help="Reuse an existing scenarios.jsonl instead of generating.")
     run.add_argument(
         "--no-judge", action="store_true", help="Rules only — no model call while scoring."
     )
@@ -398,7 +407,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Route the run through the Manager (M2): intent, plan, then all four stages.",
     )
-    run.add_argument("--plugin", default="rest_api", help="Plugin slot for --manager.")
+    run.add_argument(
+        "--plugin",
+        default="rest_api",
+        help="Plugin that executes the scenarios (a directory under plugins/).",
+    )
     run.add_argument(
         "--max-budget", type=float, default=2.0, help="USD cap on the Manager's own turns."
     )
