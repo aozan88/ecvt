@@ -80,6 +80,25 @@ def _base_url() -> str:
     return os.environ.get("ECVT_BASE_URL", DEFAULT_BASE_URL)
 
 
+A03_DOMAIN_MODEL_ENV = "ECVT_A03_DOMAIN_MODEL"
+
+
+def a03_gets_domain_model() -> bool:
+    """Whether scenario_gen is handed a02's DomainModel (ADR 0012).
+
+    On by default — that is M2-T2. `ECVT_A03_DOMAIN_MODEL=off` keeps the whole
+    Manager run as it is, a02 included, and only withholds a02's output from
+    a03. That is the comparison ADR 0012 needs: the Manager path with and
+    without the DomainModel downstream, everything else held still. Comparing
+    the Manager path against the M1 chain instead would measure the
+    orchestration as well.
+    """
+    value = os.environ.get(A03_DOMAIN_MODEL_ENV, "on").strip().lower()
+    if value not in ("on", "off"):
+        raise ValueError(f"{A03_DOMAIN_MODEL_ENV} must be 'on' or 'off', not {value!r}")
+    return value == "on"
+
+
 # --------------------------------------------------------------------------- a02
 def run_domain_intel(stage_input: dict[str, Any]) -> dict[str, Any]:
     from agents.a02_domain_intelligence.agent import build_domain_model, summarize
@@ -108,12 +127,13 @@ def run_scenario_gen(stage_input: dict[str, Any]) -> dict[str, Any]:
     StageError = _error_cls()
     target = stage_input["slots"]["target_system"]
     domain_ref = stage_input["upstream"].get("domain_intel")
+    feed = domain_ref and a03_gets_domain_model()
     try:
         scenario_set, result = generate_scenario_set(
             spec_path=_spec_path(target),
             target=target,
             model=_model(),
-            domain_model=_load(domain_ref) if domain_ref else None,
+            domain_model=_load(domain_ref) if feed else None,
         )
     except StructuredCallError as e:
         raise StageError(_why("scenario set invalid", e), retryable=True) from e
