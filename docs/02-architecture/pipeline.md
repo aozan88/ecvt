@@ -1,6 +1,6 @@
 # Validation Pipeline
 
-> v1.2 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
+> v1.3 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
 > are both live on `main`. Patterns and rationale:
 > [`architecture.md`](architecture.md) §3.
 
@@ -41,8 +41,16 @@ succeeded.
 | execution (a05) | ScenarioSet; `plugin` slot (default `rest_api`) → `plugin.execute` | one execution record per scenario | `executions.jsonl` |
 | evaluation (a06) | execution records + plugin name; rules via the `ecvt-eval` MCP server (generic + the plugin's `domain_rules`), then the judge | one score per scenario | `scores.jsonl` |
 
-The catch rate (X/10) is computed afterwards by reporting from `scores.jsonl`
-and `ground_truth.yaml`; no stage reads ground truth (ADR 0007).
+After the last stage, reporting reads the run directory — no model call:
+
+| Report | Reads | Files |
+|---|---|---|
+| Business, Dev (M3-T4) | scenarios, executions, scores, `run.json` | `report-business.{md,html}`, `report-dev.{md,html}` |
+| Catch rate (X/10) | scores, executions + `ground_truth.yaml` | `report.md` |
+
+Only the catch-rate report reads ground truth; no stage does (ADR 0007). Business
+recommends by the worst severity found: critical → not ready, high → fix before
+release, medium/low → releasable with known issues.
 
 M2 runner contract (every stage):
 

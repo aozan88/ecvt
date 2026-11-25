@@ -133,17 +133,13 @@ def test_empty_baseline_rejected(tmp_path):
 
 def test_passing_scenario_is_never_attributed():
     bugs = rp.load_ground_truth(GT_PATH)
-    rp.attribute(
-        [score("sc-1", "edge", verdict="pass")], {"sc-1": "POST /transfers"}, bugs
-    )
+    rp.attribute([score("sc-1", "edge", verdict="pass")], {"sc-1": "POST /transfers"}, bugs)
     assert all(not b.caught for b in bugs)
 
 
 def test_not_run_scenario_is_never_attributed():
     bugs = rp.load_ground_truth(GT_PATH)
-    rp.attribute(
-        [score("sc-1", "edge", verdict="not_run")], {"sc-1": "POST /transfers"}, bugs
-    )
+    rp.attribute([score("sc-1", "edge", verdict="not_run")], {"sc-1": "POST /transfers"}, bugs)
     assert all(not b.caught for b in bugs)
 
 
@@ -423,3 +419,175 @@ def test_gate_never_writes_into_docs():
     commands = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
     assert "--record" not in commands
     assert "--report" in commands
+
+
+# --- M3-T4: Dev + Business reports (no ground truth, no model call) ---------
+
+from ecvt import audience_reports as ar
+from ecvt.scoring import Dimension, DimensionScore
+
+
+def _audience_run(tmp_path: Path, cases: list[dict], meta: dict | None = None) -> Path:
+    """cases: {id, severity, verdict, judge (None|verdict), title}."""
+    from ecvt.results import ExecutionRecord, RunOutcome, StepResult, write_executions_jsonl
+    from ecvt.schema import Scenario, ScenarioSet, write_scenarios_jsonl
+    from ecvt.scoring import RuleCheck, combine, write_scores_jsonl
+    from tests.test_schema import make_scenario
+
+    run_dir = tmp_path / "run"
+    scenarios, records, scores = [], [], []
+    for c in cases:
+        s = Scenario.model_validate(
+            make_scenario(c["id"], severity=c["severity"], title=c["title"])
+        )
+        outcome = RunOutcome.SETUP_FAILED if c["verdict"] == "not_run" else RunOutcome.COMPLETED
+        step = StepResult(
+            name="overdraw",
+            endpoint="POST /transfers",
+            status_code=200,
+            url="http://t/transfers",
+            request_body={"amount": 500.0},
+            response_json={"status": "ok"},
+        )
+        r = ExecutionRecord(
+            scenario_id=s.id,
+            category=s.category.value,
+            base_url="http://t",
+            outcome=outcome,
+            actions=[step] if outcome is RunOutcome.COMPLETED else [],
+            note="setup step 'create_source' returned 422" if c["verdict"] == "not_run" else None,
+        )
+        v = Verdict(c["verdict"])
+        dims = [
+            DimensionScore(
+                dimension=Dimension.RULE,
+                verdict=v,
+                checks=[
+                    RuleCheck(
+                        name="status_expected",
+                        verdict=v,
+                        detail=f"rule detail for {s.id}",
+                        expected="[400, 422]",
+                        observed="[200]",
+                    )
+                ],
+            )
+        ]
+        if c.get("judge"):
+            dims.append(
+                DimensionScore(
+                    dimension=Dimension.JUDGE,
+                    verdict=Verdict(c["judge"]),
+                    rationale=f"Judge says {c['judge']} for {s.id}. Second sentence.",
+                )
+            )
+        scenarios.append(s)
+        records.append(r)
+        scores.append(combine(s, r, dims))
+    write_scenarios_jsonl(
+        run_dir / "scenarios.jsonl",
+        ScenarioSet(target="t", spec_title="Demo API", scenarios=scenarios),
+    )
+    write_executions_jsonl(run_dir / "executions.jsonl", records)
+    write_scores_jsonl(run_dir / "scores.jsonl", scores)
+    (run_dir / "run.json").write_text(
+        json.dumps(
+            meta
+            or {
+                "target": "examples/demo",
+                "plugin": "wallet",
+                "elapsed_s": 3.2,
+                "usage": {"cost_usd": 0.0042, "total_tokens": 900},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
+
+
+def _case(sid, severity="medium", verdict="fail", judge=None, title=None):
+    return {
+        "id": sid,
+        "severity": severity,
+        "verdict": verdict,
+        "judge": judge,
+        "title": title or f"Scenario {sid}",
+    }
+
+
+@pytest.mark.parametrize(
+    ("cases", "headline"),
+    [
+        ([_case("a", "critical"), _case("b", "high")], "Not ready to release"),
+        ([_case("a", "high"), _case("b", "low")], "Fix before release"),
+        ([_case("a", "medium"), _case("b", "low", "pass")], "Releasable with known issues"),
+        ([_case("a", verdict="pass")], "No issues found"),
+        ([_case("a", verdict="not_run")], "No result"),
+    ],
+)
+def test_release_recommendation_follows_the_stated_rule(tmp_path, cases, headline):
+    run = ar.load_run(_audience_run(tmp_path, cases))
+    assert headline in ar.recommendation(run)
+
+
+def test_business_shows_the_failing_rule_when_the_judge_passed(tmp_path):
+    """A judge that passed a scenario a rule failed must not explain the issue away."""
+    run = ar.load_run(
+        _audience_run(tmp_path, [_case("ruled", judge="pass"), _case("judged", judge="fail")])
+    )
+    md = ar.render_markdown(ar.build_business(run))
+    assert "rule detail for ruled" in md and "Judge says pass" not in md
+    assert "Judge says fail for judged." in md and "Second sentence" not in md  # first sentence
+
+
+def test_dev_report_has_checks_judge_repro_and_not_run_reason(tmp_path):
+    run = ar.load_run(
+        _audience_run(
+            tmp_path, [_case("f1", "critical", judge="fail"), _case("nr", verdict="not_run")]
+        )
+    )
+    md = ar.render_markdown(ar.build_dev(run))
+    assert "`status_expected`" in md and "[400, 422]" in md
+    assert "**Judge (fail):**" in md
+    assert "action  POST http://t/transfers" in md and '"amount": 500.0' in md
+    assert "returned 422" in md  # why it did not run
+    assert "plugin `wallet`" in md
+
+
+def test_findings_are_ordered_by_severity(tmp_path):
+    run = ar.load_run(
+        _audience_run(tmp_path, [_case("z", "low"), _case("y", "critical"), _case("x", "medium")])
+    )
+    assert [f.scenario.id for f in run.failures] == ["y", "x", "z"]
+
+
+def test_write_reports_writes_four_files_and_escapes(tmp_path):
+    hostile = "<script>alert(1)</script> | pipe"
+    run_dir = _audience_run(tmp_path, [_case("h", title=hostile)])
+    written = {p.name for p in ar.write_reports(run_dir)}
+    assert written == {
+        "report-business.md",
+        "report-business.html",
+        "report-dev.md",
+        "report-dev.html",
+    }
+    page = (run_dir / "report-business.html").read_text(encoding="utf-8")
+    assert "<script>alert" not in page and "&lt;script&gt;" in page
+    assert "\\| pipe" in (run_dir / "report-business.md").read_text(encoding="utf-8")
+
+
+def test_reports_need_no_ground_truth(tmp_path):
+    """They are for real targets, which ship no defect list (ADR 0007)."""
+    run_dir = _audience_run(tmp_path, [_case("a")], meta={"target": str(tmp_path / "nowhere")})
+    assert len(ar.write_reports(run_dir)) == 4
+    assert "plugin `not recorded`" in (run_dir / "report-dev.md").read_text(encoding="utf-8")
+
+
+def test_ecvt_report_command(tmp_path, capsys):
+    from ecvt import cli
+
+    run_dir = _audience_run(tmp_path, [_case("a")])
+    assert cli.main(["report", str(run_dir)]) == 0
+    assert "report-business.html" in capsys.readouterr().out
+    assert cli.main(["report", str(tmp_path / "missing")]) == 1
+    assert "is it a run directory" in capsys.readouterr().err

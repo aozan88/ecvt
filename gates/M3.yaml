@@ -4,7 +4,7 @@
 # G3-2 performs one live chain run per plugin into artifacts/gate-m3/<plugin>/; the
 # checks after it inspect those runs. The gate writes only into artifacts/ (gitignored).
 #
-# Items whose work has not landed (M3-T4 report, M3-T5 n8n, M3-T6 landing, release)
+# Items whose work has not landed (M3-T5 n8n, M3-T6 landing, release)
 # are listed now and FAIL until that work replaces the placeholder with a real check:
 # a gate missing an item cannot say the milestone is complete.
 gate: G3
@@ -155,12 +155,30 @@ checks:
       echo "DOCS OK"
     expect_stdout: DOCS OK
 
-  # --- G3 items 3-5: not landed yet; each placeholder is replaced by its task
+  # --- G3 item 3: Dev + Business report (M3-T4)
   - id: G3-10
-    desc: Dev + Business report produced by one command (M3-T4)
+    desc: Dev + Business report (Markdown + HTML) produced by one command
+    requires_env: [ANTHROPIC_API_KEY]
+    # G3-2's `--report` already wrote them; `ecvt report` regenerates them from the
+    # run directory alone, which is the one-command claim.
     cmd: |
-      echo "PENDING M3-T4 — replace with the report check"; exit 1
+      rm -f artifacts/gate-m3/wallet/report-business.* artifacts/gate-m3/wallet/report-dev.*
+      python -m ecvt.cli report artifacts/gate-m3/wallet
+      python -c "
+      import re
+      d = 'artifacts/gate-m3/wallet'
+      biz = open(f'{d}/report-business.md', encoding='utf-8').read()
+      dev = open(f'{d}/report-dev.md', encoding='utf-8').read()
+      assert re.search(r'\*\*(Not ready to release|Fix before release|Releasable with known issues|No issues found|No result)\*\*', biz), 'no recommendation'
+      assert '## What was tested' in biz and '## Findings' in dev
+      for name in ('business', 'dev'):
+          page = open(f'{d}/report-{name}.html', encoding='utf-8').read()
+          assert page.startswith('<!doctype html>') and '<title>' in page, name
+      print('REPORTS OK')
+      "
+    expect_stdout: REPORTS OK
 
+  # --- G3 items 4-5: not landed yet; each placeholder is replaced by its task
   - id: G3-11
     desc: n8n webhook triggers a run, curl test (M3-T5)
     cmd: |
