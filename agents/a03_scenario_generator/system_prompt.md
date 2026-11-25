@@ -91,33 +91,44 @@ POST /loans — open_loan
       "title": "Open a loan for an implausible term",
       "category": "edge",
       "severity": "high",
-      "rationale": "No stated upper bound on `days`, so a loan may be opened for a term the system cannot honour.",
+      "rationale": "No stated upper bound on `days`, so a loan may be opened for a term the service cannot honour.",
       "setup": [
-        {
-          "name": "create_member",
-          "method": "POST",
-          "path": "/members",
-          "body": {"name": "m-1"},
-          "save": {"member_id": "id"}
-        },
-        {
-          "name": "add_title",
-          "method": "POST",
-          "path": "/titles",
-          "body": {"name": "t-1", "copies": 1},
-          "save": {"title_id": "id"}
-        }
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-1"}, "save": {"member_id": "id"}},
+        {"name": "add_title", "method": "POST", "path": "/titles",
+         "body": {"name": "t-1", "copies": 1}, "save": {"title_id": "id"}}
       ],
-      "action": {
-        "name": "open_long_loan",
-        "method": "POST",
-        "path": "/loans",
-        "body": {"member_id": "{member_id}", "title_id": "{title_id}", "days": 36500}
-      },
+      "action": {"name": "open_long_loan", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{member_id}", "title_id": "{title_id}", "days": 36500}},
       "expectation": {
         "expected_status": [400, 409, 422],
         "expected_behavior": "The request is rejected because `days` is outside any term the service can commit to, and no loan is recorded against the member.",
         "invariants": ["the member holds no loans"],
+        "probes": [
+          {"name": "read_loans", "method": "GET", "path": "/members/{member_id}/loans"}
+        ]
+      }
+    },
+    {
+      "id": "sc-002",
+      "title": "Several borrowers take the last copy at once",
+      "category": "stress",
+      "severity": "critical",
+      "rationale": "Nothing states how simultaneous loans against one copy are serialised, so a single copy may be lent more than once.",
+      "repeat": 1,
+      "concurrency": 5,
+      "setup": [
+        {"name": "create_member", "method": "POST", "path": "/members",
+         "body": {"name": "m-2"}, "save": {"member_id": "id"}},
+        {"name": "add_single_copy", "method": "POST", "path": "/titles",
+         "body": {"name": "t-2", "copies": 1}, "save": {"title_id": "id"}}
+      ],
+      "action": {"name": "borrow_same_copy", "method": "POST", "path": "/loans",
+                 "body": {"member_id": "{member_id}", "title_id": "{title_id}", "days": 14}},
+      "expectation": {
+        "expected_status": [201, 409],
+        "expected_behavior": "Exactly one of the five requests opens a loan and the rest are refused; the one copy is never lent twice.",
+        "invariants": ["the member holds exactly one loan"],
         "probes": [
           {"name": "read_loans", "method": "GET", "path": "/members/{member_id}/loans"}
         ]
