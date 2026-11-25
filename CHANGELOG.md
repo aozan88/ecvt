@@ -125,6 +125,17 @@ stays where it is.
   does not use (ADR 0001), linked from nothing.
 
 ### Fixed
+- **Found on a live target (Swagger Petstore v3, run locally, unmodified).**
+  Two ECVT faults the demo target never exposed:
+  - `probes_readable` failed every 4xx read-back. A rename scenario was marked
+    a defect because the old username answered 404 — the correct answer. A 4xx
+    probe is now inconclusive (the invariants and judge decide); a 5xx or no
+    answer still fails. Re-scoring 10 recorded wallet runs changes no catch rate.
+  - A 5xx in setup left scenarios `not_run` and the Business report listed them
+    one by one, saying "Releasable" while 7 of 14 scenarios never ran because
+    one create endpoint failed. Reports now group not-run scenarios by the
+    endpoint and status that blocked them, and a blocking server error counts
+    as high in the recommendation.
 - **a03 no longer exhausts its attempts on a stuck correction.** Every
   generation that failed all four attempts failed them with one identical
   error: the correction turn shows the model its own rejected object and it
@@ -148,6 +159,13 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
+- **First run against a real third-party API — Swagger Petstore v3**
+  (`swaggerapi/petstore3`, local, no baseline, `rest_api` plugin, ~$0.01 and
+  ~40 s per run). Confirmed by hand afterwards: `POST /pet` without the
+  optional `id` answers 500 (with `id`, 200); invalid enum and empty fields on
+  `POST /pet` answer 500 rather than 4xx; `POST /user` answers 500 for some
+  spec-valid bodies; `PUT /user/{username}` accepts an update with no
+  credentials although its description says only the logged-in user may.
 - **a03 exhaustion, M3.** Spec-only, wallet-api, `claude-haiku-5-5`,
   `scripts/measure_a03.py`, 24 generations per arm unless noted:
 

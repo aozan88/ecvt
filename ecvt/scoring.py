@@ -202,22 +202,46 @@ def _check_replay_consistency(scenario: Scenario, record: ExecutionRecord) -> Ru
 
 
 def _check_probes(record: ExecutionRecord) -> RuleCheck | None:
+    """Could the state after the action be read back?
+
+    A probe that got no answer or a 5xx is a failure: the state cannot be read.
+    A 4xx is not, by itself: a probe may be checking that something is gone — a
+    deleted record, a renamed user's old name — and then 404 is the correct
+    answer. Whether it is correct here is for the scenario's invariants and the
+    judge, so the rule leaves it undecided. (Found on Swagger Petstore: a rename
+    scenario was failed for its old name answering 404.)
+    """
     if not record.probes:
         return None
-    broken = [p for p in record.probes if p.is_error or p.http_failed]
-    if not broken:
+    broken = [
+        p
+        for p in record.probes
+        if p.is_error or (p.status_code is not None and p.status_code >= 500)
+    ]
+    absent = [p for p in record.probes if p not in broken and p.http_failed]
+
+    def names(steps: list[StepResult]) -> str:
+        return ", ".join(f"{p.name}={p.error or p.status_code}" for p in steps)
+
+    if broken:
         return RuleCheck(
             name="probes_readable",
-            verdict=Verdict.PASS,
-            detail=f"all {len(record.probes)} probes returned readable state",
+            verdict=Verdict.FAIL,
+            detail="state could not be read back: " + names(broken),
+        )
+    if absent:
+        return RuleCheck(
+            name="probes_readable",
+            verdict=Verdict.INCONCLUSIVE,
+            detail=(
+                f"probe(s) answered with a client error ({names(absent)}); correct if the "
+                "scenario expects that state to be gone — the invariants decide"
+            ),
         )
     return RuleCheck(
         name="probes_readable",
-        verdict=Verdict.FAIL,
-        detail=(
-            "state could not be read back: "
-            + ", ".join(f"{p.name}={p.error or _status_class(p)}" for p in broken)
-        ),
+        verdict=Verdict.PASS,
+        detail=f"all {len(record.probes)} probes returned readable state",
     )
 
 

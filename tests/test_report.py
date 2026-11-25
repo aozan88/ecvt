@@ -455,6 +455,9 @@ def _audience_run(tmp_path: Path, cases: list[dict], meta: dict | None = None) -
             base_url="http://t",
             outcome=outcome,
             actions=[step] if outcome is RunOutcome.COMPLETED else [],
+            setup=[StepResult(name="add_pet", endpoint="POST /pet", status_code=c["setup_status"])]
+            if c.get("setup_status")
+            else [],
             note="setup step 'create_source' returned 422" if c["verdict"] == "not_run" else None,
         )
         v = Verdict(c["verdict"])
@@ -591,3 +594,40 @@ def test_ecvt_report_command(tmp_path, capsys):
     assert "report-business.html" in capsys.readouterr().out
     assert cli.main(["report", str(tmp_path / "missing")]) == 1
     assert "is it a run directory" in capsys.readouterr().err
+
+
+# --- found on a live target (Swagger Petstore) -------------------------------
+
+
+def _blocked(sid, status=500):
+    return {**_case(sid, verdict="not_run"), "setup_status": status}
+
+
+def test_server_errors_that_block_setup_raise_the_recommendation(tmp_path):
+    """Petstore: half the run never ran because a create answered 500, and the
+    report still said "Releasable"."""
+    run = ar.load_run(
+        _audience_run(
+            tmp_path,
+            [_case("ok", verdict="pass"), _case("m", "medium"), _blocked("b1"), _blocked("b2")],
+        )
+    )
+    assert "Fix before release" in ar.recommendation(run)
+    assert "server errors blocked 2 of 4" in ar.recommendation(run)
+    md = ar.render_markdown(ar.build_business(run))
+    assert "**Blocked:** `POST /pet` answered 500 during setup" in md
+    assert "2 blocked by server errors" in md
+    assert "Could not run: Scenario b1" not in md  # grouped, not listed one by one
+
+
+def test_a_4xx_in_setup_is_not_a_blocking_error(tmp_path):
+    """A 4xx in setup is usually the scenario's own mistake, not the target's."""
+    run = ar.load_run(_audience_run(tmp_path, [_case("m", "medium"), _blocked("b", 422)]))
+    assert ar.blocking_errors(run) == {}
+    assert "Releasable with known issues" in ar.recommendation(run)
+
+
+def test_a_down_target_is_still_no_result_not_a_blocker(tmp_path):
+    run = ar.load_run(_audience_run(tmp_path, [_case("a", verdict="not_run")]))
+    assert ar.blocking_errors(run) == {}
+    assert "No result" in ar.recommendation(run)

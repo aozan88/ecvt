@@ -572,3 +572,19 @@ def test_score_scenarios_applies_the_plugin_rules():
     ruled, _ = score_scenarios([s], [r], use_judge=False, plugin="wallet")
     assert not any(c.name.startswith("wallet.") for d in plain[0].dimensions for c in d.checks)
     assert ruled[0].defect_suspected and "itself" in ruled[0].summary
+
+
+@pytest.mark.parametrize(
+    ("status", "verdict"),
+    [(200, Verdict.PASS), (404, Verdict.INCONCLUSIVE), (500, Verdict.FAIL)],
+)
+def test_probe_404_is_undecided_not_a_failure(status, verdict):
+    """Petstore: a rename scenario was failed because the old name answered 404 —
+    which is the correct answer. A 4xx probe is left to the invariants and judge."""
+    s, r = _wallet_case([_xfer("1", "2", 10.0, after=(90.0, 10.0))], [])
+    probe = StepResult(
+        name="read_old", endpoint="GET /user/{old}", status_code=status, response_json={"x": 1}
+    )
+    r = r.model_copy(update={"probes": [probe]})
+    check = next(c for c in run_rules(s, r).checks if c.name == "probes_readable")
+    assert check.verdict is verdict

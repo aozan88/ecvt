@@ -54,7 +54,9 @@ After the last stage, reporting reads the run directory — no model call:
 
 Only the catch-rate report reads ground truth; no stage does (ADR 0007). Business
 recommends by the worst severity found: critical → not ready, high → fix before
-release, medium/low → releasable with known issues.
+release, medium/low → releasable with known issues. A 5xx that blocked scenarios
+in setup counts as high: they stay `not_run`, and the report groups them by the
+endpoint and status that blocked them.
 
 M2 runner contract (every stage):
 
