@@ -4,7 +4,7 @@
 # G3-2 performs one live chain run per plugin into artifacts/gate-m3/<plugin>/; the
 # checks after it inspect those runs. The gate writes only into artifacts/ (gitignored).
 #
-# Items whose work has not landed (M3-T6 landing, release)
+# Items whose work has not landed (the release)
 # are listed now and FAIL until that work replaces the placeholder with a real check:
 # a gate missing an item cannot say the milestone is complete.
 gate: G3
@@ -215,11 +215,17 @@ checks:
       "
     expect_stdout: N8N TRIGGERED
 
-  # --- G3 item 5: not landed yet; the placeholder is replaced by M3-T6
+  # --- G3 item 5: landing (M3-T6); the video is deferred (ADR 0015)
   - id: G3-12
-    desc: landing page is live and the video link resolves (M3-T6)
+    desc: landing page and its sample reports are live on GitHub Pages (video deferred, ADR 0015)
+    timeout: 60
     cmd: |
-      echo "PENDING M3-T6 — replace with the landing + video URL checks"; exit 1
+      URL=https://aozan88.github.io/ecvt
+      curl -sfL "$URL/" | grep -q "Edge Case Validation Toolkit"
+      curl -sfL "$URL/sample/report-business.html" | grep -q "Quality report"
+      curl -sfL "$URL/sample/report-dev.html" | grep -q "developer report"
+      echo "LANDING LIVE $URL"
+    expect_stdout: LANDING LIVE
 
   # --- G3 item 6: release
   - id: G3-13

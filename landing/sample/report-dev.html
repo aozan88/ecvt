@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ECVT developer report — landing-sample</title><style>
+:root { --bg:#ffffff; --fg:#1d1d1f; --muted:#5f6368; --line:#e3e3e8; --code:#f4f4f7;
+        --accent:#3b5bdb; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16171a; --fg:#ececf1; --muted:#a0a3ab; --line:#2e3036; --code:#22242a;
+          --accent:#8ea6ff; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg);
+       font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 16px; }
+h2 { font-size: 1.2rem; margin: 32px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 1.02rem; margin: 24px 0 6px; }
+p, li { color: var(--fg); }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+pre { background: var(--code); padding: 12px; border-radius: 6px; overflow-x: auto;
+      font-size: .85em; line-height: 1.45; }
+.table { overflow-x: auto; margin: 8px 0 16px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: .92em; }
+th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+</style></head><body><main><h1>ECVT developer report — landing-sample</h1><ul><li>Target <code>examples/wallet-api</code> at http://localhost:8000 · plugin <code>wallet</code></li><li>Model <code>claude-haiku-5-5</code> · judge on · 14 judged</li><li>Verdicts: fail=8, inconclusive=1, pass=5</li><li>Cost: 24 s · $0.0084 · 64031 tokens</li></ul><h2>Failing checks</h2><div class="table"><table><thead><tr><th>Check</th><th>Scenarios</th></tr></thead><tbody><tr><td><code>status_expected</code></td><td>4</td></tr><tr><td><code>wallet.no_negative_balance</code></td><td>3</td></tr><tr><td><code>wallet.replay_applied_once</code></td><td>1</td></tr><tr><td><code>wallet.transfer_amount_positive</code></td><td>1</td></tr><tr><td><code>wallet.no_self_transfer</code></td><td>1</td></tr></tbody></table></div><h2>Findings</h2><h3>sc-005 · critical · Many parallel transfers draining one account</h3><p><code>POST /transfers</code> · stress · expected status [200, 422]</p><p><strong>Expected:</strong> At most one of the ten 60.0 transfers succeeds; the source never goes below 0.0.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>wallet.no_negative_balance</code></td><td>every balance ≥ 0</td><td>transfer_60_race.from_balance=-200.0, transfer_60_race.from_balance=-140.0, transfer_60_race.from_balance=-80.0</td><td>a balance went below zero: transfer_60_race.from_balance=-200.0, transfer_60_race.from_balance=-140.0, transfer_60_race.from_balance=-80.0</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> Ten concurrent 60.0 transfers from an account starting at 100.0 were all accepted with 200, and the final probe shows the source at -500.0 and the destination at 600.0, so the account was overdrawn and the debits were applied far more than once.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "hank", "initial_balance": 100.0}
+        → 200 {"id": "8", "owner": "hank", "balance": 100.0}
+setup   POST http://localhost:8000/accounts
+        body: {"owner": "ivy", "initial_balance": 0.0}
+        → 200 {"id": "9", "owner": "ivy", "balance": 0.0}
+action  POST http://localhost:8000/transfers
+        body: {"from_account": "8", "to_account": "9", "amount": 60.0}
+        → 200 {"status": "ok", "from": "8", "to": "9", "amount": 60.0, "from_balance": 40.0, "to_balance": 60.0}
+        (10 copies sent; statuses [200, 200, 200, 200, 200, 200, 200, 200, 200, 200])
+probe   GET http://localhost:8000/accounts/8/balance
+        → 200 {"account": "8", "balance": -500.0}
+probe   GET http://localhost:8000/accounts/9/balance
+        → 200 {"account": "9", "balance": 600.0}</pre><h3>sc-011 · critical · Same-account transfer replayed twice</h3><p><code>POST /transfers</code> · adversarial · expected status [200, 409, 422]</p><p><strong>Expected:</strong> Each identical submission is not applied more than once by the wallet's own rules; the source is debited at most once per intended transfer, and the sum of balances is conserved.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>wallet.replay_applied_once</code></td><td>one debit for a replayed transfer</td><td>3 distinct source balances</td><td>the same transfer, replayed 3 times, moved money 3 times (source balance after each: [80.0, 60.0, 40.0])</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> Three identical transfers of 20.0 were each accepted with 200 and each changed state: the source fell from 100.0 to 40.0 and the destination rose from 0.0 to 60.0, so the transfer was applied three times rather than once. The sum of balances is still 100.0, so conservation holds, but the debit-at-most-once requirement is violated.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "rita", "initial_balance": 100.0}
+        → 200 {"id": "36", "owner": "rita", "balance": 100.0}
+setup   POST http://localhost:8000/accounts
+        body: {"owner": "sam", "initial_balance": 0.0}
+        → 200 {"id": "37", "owner": "sam", "balance": 0.0}
+action  POST http://localhost:8000/transfers
+        body: {"from_account": "36", "to_account": "37", "amount": 20.0}
+        → 200 {"status": "ok", "from": "36", "to": "37", "amount": 20.0, "from_balance": 80.0, "to_balance": 20.0}
+        (3 copies sent; statuses [200, 200, 200])
+probe   GET http://localhost:8000/accounts/36/balance
+        → 200 {"account": "36", "balance": 40.0}
+probe   GET http://localhost:8000/accounts/37/balance
+        → 200 {"account": "37", "balance": 60.0}</pre><h3>sc-007 · high · Read balance of an account owned by another party</h3><p><code>GET /accounts/{victim}/balance</code> · security · expected status [401, 403, 404]</p><p><strong>Expected:</strong> The request is refused because the caller does not own the account; the balance is not disclosed. Note the spec defines no auth header, so refusal is expected only if the service enforces ownership some other way.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>status_expected</code></td><td>[401, 403, 404]</td><td>[200]</td><td>returned [200], which a correct implementation should not</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> The balance endpoint returned 200 with the victim account's balance of 999.0 to a caller with no ownership check, where the expected status was 401, 403 or 404 and the balance should not be disclosed. The invariant holds (the balance is still 999.0), but the disclosure itself is the deviation.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "kim", "initial_balance": 999.0}
+        → 200 {"id": "30", "owner": "kim", "balance": 999.0}
+action  GET http://localhost:8000/accounts/30/balance
+        → 200 {"account": "30", "balance": 999.0}
+probe   GET http://localhost:8000/accounts/30/balance
+        → 200 {"account": "30", "balance": 999.0}</pre><h3>sc-008 · high · Read transactions of an account owned by another party</h3><p><code>GET /accounts/{victim}/transactions</code> · security · expected status [401, 403, 404]</p><p><strong>Expected:</strong> The request is refused for a caller who does not own the account; transaction history is not disclosed.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>status_expected</code></td><td>[401, 403, 404]</td><td>[200]</td><td>returned [200], which a correct implementation should not</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> The transaction history of account 31 was returned with 200 and disclosed a counterparty and amount (31 -&gt; 32, 5.0), which the scenario says must be refused for a non-owner. The balance invariant holds: the probe reads 495.0.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "liam", "initial_balance": 500.0}
+        → 200 {"id": "31", "owner": "liam", "balance": 500.0}
+setup   POST http://localhost:8000/accounts
+        body: {"owner": "nina", "initial_balance": 0.0}
+        → 200 {"id": "32", "owner": "nina", "balance": 0.0}
+setup   POST http://localhost:8000/transfers
+        body: {"from_account": "31", "to_account": "32", "amount": 5.0}
+        → 200 {"status": "ok", "from": "31", "to": "32", "amount": 5.0, "from_balance": 495.0, "to_balance": 5.0}
+action  GET http://localhost:8000/accounts/31/transactions
+        → 200 [{"from": "31", "to": "32", "amount": 5.0}]
+probe   GET http://localhost:8000/accounts/31/balance
+        → 200 {"account": "31", "balance": 495.0}</pre><h3>sc-009 · high · Create account with a negative opening balance</h3><p><code>POST /accounts</code> · negative · expected status [422]</p><p><strong>Expected:</strong> The request is rejected with 422 because an opening balance cannot be negative; no account with negative balance exists.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>status_expected</code></td><td>[422]</td><td>[200]</td><td>returned [200], which a correct implementation should not</td></tr><tr><td><code>wallet.no_negative_balance</code></td><td>every balance ≥ 0</td><td>create_negative.balance=-100.0</td><td>a balance went below zero: create_negative.balance=-100.0</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> The create request was accepted with 200 (expected 422) and the response itself reports account 33 for oscar with balance -100.0, so the negative opening balance was persisted as the creation result.</p><pre>action  POST http://localhost:8000/accounts
+        body: {"owner": "oscar", "initial_balance": -100.0}
+        → 200 {"id": "33", "owner": "oscar", "balance": -100.0}</pre><h3>sc-014 · high · Customer opens account, funds it by transfer, then spends beyond balance</h3><p><code>POST /transfers</code> · persona · expected status [422]</p><p><strong>Expected:</strong> The spend of 31.0 from a 30.0 balance is rejected with 422; the wallet balance stays at 30.0.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>status_expected</code></td><td>[422]</td><td>[200]</td><td>returned [200], which a correct implementation should not</td></tr><tr><td><code>wallet.no_negative_balance</code></td><td>every balance ≥ 0</td><td>overspend.from_balance=-1.0, wallet_balance.balance=-1.0</td><td>a balance went below zero: overspend.from_balance=-1.0, wallet_balance.balance=-1.0</td></tr></tbody></table></div><p><strong>Judge (fail):</strong> The overspend of 31.0 from a wallet holding 30.0 was accepted with 200 instead of rejected with 422, and the wallet probe reads -1.0, so the overdraft check did not use the post-top-up balance.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "walt", "initial_balance": 0.0}
+        → 200 {"id": "41", "owner": "walt", "balance": 0.0}
+setup   POST http://localhost:8000/accounts
+        body: {"owner": "xena", "initial_balance": 30.0}
+        → 200 {"id": "42", "owner": "xena", "balance": 30.0}
+setup   POST http://localhost:8000/transfers
+        body: {"from_account": "42", "to_account": "41", "amount": 30.0}
+        → 200 {"status": "ok", "from": "42", "to": "41", "amount": 30.0, "from_balance": 0.0, "to_balance": 30.0}
+action  POST http://localhost:8000/transfers
+        body: {"from_account": "41", "to_account": "42", "amount": 31.0}
+        → 200 {"status": "ok", "from": "41", "to": "42", "amount": 31.0, "from_balance": -1.0, "to_balance": 31.0}
+probe   GET http://localhost:8000/accounts/41/balance
+        → 200 {"account": "41", "balance": -1.0}</pre><h3>sc-003 · medium · Zero-amount transfer</h3><p><code>POST /transfers</code> · edge · expected status [200, 422]</p><p><strong>Expected:</strong> Either the zero transfer is rejected, or it is accepted with no change to either balance; balances must not change either way.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>wallet.transfer_amount_positive</code></td><td>4xx for amount ≤ 0</td><td>[200]</td><td>a transfer of 0 was accepted (1 of 1); a wallet moves only positive amounts</td></tr></tbody></table></div><p><strong>Judge (pass):</strong> The zero transfer was accepted with 200 and the response reports from_balance 50.0 and to_balance 10.0; both post-action probes read back 50.0 (src) and 10.0 (dst), so balances are unchanged, which the expected behaviour permits.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "dan", "initial_balance": 50.0}
+        → 200 {"id": "4", "owner": "dan", "balance": 50.0}
+setup   POST http://localhost:8000/accounts
+        body: {"owner": "erin", "initial_balance": 10.0}
+        → 200 {"id": "5", "owner": "erin", "balance": 10.0}
+action  POST http://localhost:8000/transfers
+        body: {"from_account": "4", "to_account": "5", "amount": 0}
+        → 200 {"status": "ok", "from": "4", "to": "5", "amount": 0.0, "from_balance": 50.0, "to_balance": 10.0}
+probe   GET http://localhost:8000/accounts/4/balance
+        → 200 {"account": "4", "balance": 50.0}
+probe   GET http://localhost:8000/accounts/5/balance
+        → 200 {"account": "5", "balance": 10.0}</pre><h3>sc-012 · medium · Transfer from an account to itself</h3><p><code>POST /transfers</code> · adversarial · expected status [200, 422]</p><p><strong>Expected:</strong> Either the self-transfer is rejected, or it leaves the balance unchanged; it must not increase or decrease the balance.</p><div class="table"><table><thead><tr><th>Check</th><th>Expected</th><th>Observed</th><th>Detail</th></tr></thead><tbody><tr><td><code>wallet.no_self_transfer</code></td><td>4xx when from_account == to_account</td><td>[200]</td><td>a transfer from an account to itself was accepted (1 of 1)</td></tr></tbody></table></div><p><strong>Judge (pass):</strong> The self-transfer returned 200, which is allowed by expected_status, and the balance probe reads 60.0 afterwards, so the balance is unchanged as the expected behaviour requires. The transfer response also reports from_balance and to_balance of 60.0.</p><pre>setup   POST http://localhost:8000/accounts
+        body: {"owner": "tom", "initial_balance": 60.0}
+        → 200 {"id": "38", "owner": "tom", "balance": 60.0}
+action  POST http://localhost:8000/transfers
+        body: {"from_account": "38", "to_account": "38", "amount": 10.0}
+        → 200 {"status": "ok", "from": "38", "to": "38", "amount": 10.0, "from_balance": 60.0, "to_balance": 60.0}
+probe   GET http://localhost:8000/accounts/38/balance
+        → 200 {"account": "38", "balance": 60.0}</pre><h2>Inconclusive</h2><div class="table"><table><thead><tr><th>Scenario</th><th>Endpoint</th><th>Why</th></tr></thead><tbody><tr><td><code>sc-006</code></td><td><code>POST /accounts</code></td><td>All 20 burst creations returned 200 with 20 distinct ids (10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29) and balance 25.0 each; the sampled account read back as 25.0, so no overwrite or loss is visible.</td></tr></tbody></table></div><h2>Passed</h2><div class="table"><table><thead><tr><th>Scenario</th><th>Category</th><th>Title</th></tr></thead><tbody><tr><td><code>sc-001</code></td><td>happy</td><td>Create account and read its balance</td></tr><tr><td><code>sc-002</code></td><td>happy</td><td>Transfer between two funded accounts</td></tr><tr><td><code>sc-004</code></td><td>edge</td><td>Transfer exactly the full balance</td></tr><tr><td><code>sc-010</code></td><td>negative</td><td>Transfer with a non-numeric amount</td></tr><tr><td><code>sc-013</code></td><td>persona</td><td>Customer pays, then checks balance and history the same moment</td></tr></tbody></table></div></main></body></html>
