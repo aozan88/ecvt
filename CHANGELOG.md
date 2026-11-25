@@ -9,6 +9,13 @@ after `v0.5.0` and are not part of it: the tag records what was released, so it
 stays where it is.
 
 ### Changed
+- `ECVT_A03_DOMAIN_MODEL=on|off` (default `on`) withholds a02's DomainModel
+  from a03 without changing the rest of a Manager run, and `run.json` records
+  which arm a run was in as `a03_domain_model`. It exists for ADR 0012.
+- `eval_runner --runs N` judges a dataset on its pooled rate over N runs and
+  lists each case as stable pass, flaky or stable fail; G2-4 runs a02 three
+  times. Gate checks now run under `bash -e -o pipefail` — before, G1-4 and
+  G2-4 passed with the eval runner exiting 1 below the bar.
 - a03's few-shot no longer uses the target it is measured on. The example was
   wallet-api's own three endpoints carrying a scenario titled "Transfer above
   available balance" — GT-03 in the demo target's ground truth, so the prompt
@@ -60,6 +67,22 @@ stays where it is.
 
 ### Measured
 
+#### The DomainModel handed to a03, or withheld (ADR 0012)
+Six Manager runs per arm, wallet-api; `ECVT_A03_DOMAIN_MODEL` withholds a02's
+output from a03 while a02 still runs, so the arms differ in that input only.
+
+| | Handed to a03 | Withheld |
+|---|---|---|
+| Catch rate min / median / max | 1 / 5 / 8 | 3 / 5.5 / 7 |
+| Cost / run | $0.071 | $0.072 |
+| Executions failing setup | 12 / 86 | 1 / 84 |
+
+No measured benefit, no cost difference. The one difference with a mechanism:
+the DomainModel's rules, gaps and workflows name the account's id `account_id`
+20–29 times per run, after the path parameter, while the target answers
+`{"id": ...}`; in one run of six a03 saved `account_id` and that run caught
+1/10. The decision is ADR 0012's, which is Proposed.
+
 #### Catch rate — the reference from here on
 `scripts/n_run.py --runs 5`, wallet-api, `claude-haiku-5-5`. The figures that
 preceded this were taken with a few-shot that named GT-03, so they are kept
@@ -92,8 +115,9 @@ and the model read that as "the response field is named after the path
 parameter"; the old example's names differed, so it taught the opposite by
 accident. With the save keys renamed to `borrower` and `item`, capture failures
 went from 49 to 0 and the median from 1 to 6. The Manager path showed none of it
-(0 of 70) — a02's DomainModel lists the fields, so nothing is inferred from a
-path.
+in that run (0 of 70). The explanation first given here — that the DomainModel
+lists the fields — was wrong: a03 receives only its rules, gaps and workflows,
+and in the ADR 0012 measurement below the Manager path did show this failure.
 
 #### Generation reliability, six prompt variants
 24 generations per arm, spec-only, wallet-api, `claude-haiku-5-5`,
