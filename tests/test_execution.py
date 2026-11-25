@@ -497,12 +497,12 @@ def test_plugin_without_execute_cannot_be_built():
 
 
 @pytest.mark.asyncio
-async def test_optional_hooks_default_to_nothing():
+async def test_optional_hook_defaults_to_nothing():
     from plugins._base.plugin import load
 
     plugin = load("rest_api", _ctx())
     assert await plugin.discover_domain() is None
-    assert plugin.validate_response(scenario(), None) == []
+    assert not hasattr(plugin, "validate_response")  # ADR 0013: a06 alone scores
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,6 @@ class Plugin(ABC):
     def __init__(self, context: PluginContext)
     async def execute(self, scenarios) -> list[ExecutionRecord]   # abstract
     async def discover_domain(self) -> dict | None                 # default None
-    def validate_response(self, scenario, record) -> list[str]     # default []
 ```
 
 `PluginContext`: `base_url`, `timeout_s`, `max_parallel`, and `options:
@@ -47,18 +46,19 @@ field per target system.
 |---|---|---|
 | `execute` | yes | One `ExecutionRecord` per scenario. Raises for nothing the target does: failures are records (ADR 0006). Keeps scenarios that share target state from overlapping. |
 | `discover_domain` | no | A DomainModel the plugin knows without a spec. No caller yet. |
-| `validate_response` | no | Plugin-specific rule findings for one execution. First caller: M3-T2 (wallet rules). |
 
-## Changes from the scaffold
+## Changes from the scaffold (ADR 0013)
 
 - `execute_scenario(one)` became **`execute(set)`**: an implementation may share
   a connection or session across the set and must order scenarios that touch the
   same state — the existing runner already does both with one HTTP client.
-- `discover_domain` and `validate_response` are **optional** with neutral
-  defaults. Nothing calls them in M3-T1; making them abstract would force every
-  plugin to write stubs for hooks with no caller.
+- **`send(step)` is deferred** to the second real backend: the step type is
+  HTTP today (`HttpStep`), so a narrower seam designed now would be a guess.
+- **`validate_response` is removed.** Scoring is a06's alone; a plugin may
+  contribute domain rules as data (M3-T2 defines how), never scores.
+- `discover_domain` is optional with a `None` default.
 
 ## Types
 
 `Scenario` (`ecvt/schema.py`), `ExecutionRecord` (`ecvt/results.py`). Scores
-stay in Core (`ecvt/scoring.py`); a plugin contributes findings, not scores.
+stay in Core (`ecvt/scoring.py`, a06); a plugin never scores.

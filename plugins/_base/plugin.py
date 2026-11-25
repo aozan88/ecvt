@@ -13,12 +13,11 @@ accepted `plugin=ikys` and then executed over REST anyway.
 
 What a plugin must do is execute. What it may add is knowledge:
 
-    execute(scenarios)            required  scenarios -> ExecutionRecords
-    discover_domain()             optional  a DomainModel the plugin knows
-    validate_response(s, record)  optional  plugin-specific rule findings
+    execute(scenarios)   required  scenarios -> ExecutionRecords
+    discover_domain()    optional  a DomainModel the plugin knows (default None)
 
-The optional hooks default to "nothing plugin-specific". Nothing calls them yet;
-M3-T2 (wallet rules) is where `validate_response` gets a caller.
+A plugin does not score: scoring belongs to a06 (ADR 0013). Execution stays at
+set granularity for v1.0; `send(step)` arrives with a second real backend.
 """
 
 from __future__ import annotations
@@ -77,10 +76,6 @@ class Plugin(ABC):
     async def discover_domain(self) -> dict[str, Any] | None:
         """A DomainModel this plugin knows without reading a spec, or None."""
         return None
-
-    def validate_response(self, scenario: Scenario, record: ExecutionRecord) -> list[str]:
-        """Plugin-specific rule violations in one execution, as short findings."""
-        return []
 
 
 def available(plugins_dir: Path = PLUGINS_DIR) -> list[str]:

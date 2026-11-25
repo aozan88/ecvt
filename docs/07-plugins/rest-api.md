@@ -31,4 +31,4 @@ the wallet.
 
 - **Auth** (keys/tokens via env): not implemented. The intended place is
   `PluginContext.options` naming an env var, never a value in the repo.
-- `discover_domain` / `validate_response` use the interface defaults.
+- `discover_domain` uses the interface default (`None`).
