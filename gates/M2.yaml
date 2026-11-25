@@ -61,14 +61,21 @@ checks:
     expect_stdout: DATASETS OK
 
   - id: G2-4
-    desc: a01 Manager and a02 Domain Intelligence eval pass rate is >= 80%
+    desc: a01 eval >= 80%; a02 eval >= 80% pooled over 3 runs
     requires_env: [ANTHROPIC_API_KEY]
-    timeout: 1800
+    # a02 is judged on three runs, not one: a single run of an eval is one draw,
+    # and the same code read 90% and 70% on a03. Flaky (1-2/3) and stable-fail
+    # (0/3) cases are listed in evals-a02.json. a01 stays at one run — it runs
+    # on stub stages and has read 12/12 every time it has been measured.
+    timeout: 3600
     cmd: |
       python scripts/eval_runner.py \
         agents/a01_manager/eval_dataset.jsonl \
+        --out artifacts/gate-m2/evals-a01.json
+      python scripts/eval_runner.py \
         agents/a02_domain_intelligence/eval_dataset.jsonl \
-        --out artifacts/gate-m2/evals.json
+        --runs 3 \
+        --out artifacts/gate-m2/evals-a02.json
       echo "EVALS MEET BAR"
     expect_stdout: EVALS MEET BAR
 
