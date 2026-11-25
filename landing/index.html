@@ -1,4 +1,149 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>ECVT — AI Quality Engineering Platform</title></head>
-<body><h1>ECVT</h1><p>AI Quality Engineering Platform. STUB landing page.</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECVT — Edge Case Validation Toolkit</title>
+<meta name="description" content="A team of Claude agents that reads an API's spec, writes the edge cases, runs them and tells you what broke — with a release recommendation.">
+<style>
+:root {
+  --bg: #fbfbfa; --fg: #17181c; --muted: #5d6068; --line: #e4e4e0; --card: #ffffff;
+  --accent: #2f5bd3; --accent-soft: #e8eefc; --crit: #b42318; --code: #f2f2ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121317; --fg: #ececef; --muted: #a2a5ad; --line: #2a2c33; --card: #191a1f;
+          --accent: #8fa8ff; --accent-soft: #1e2540; --crit: #ff8a7a; --code: #1f2026; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+header.top { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; padding: 20px 0; }
+.brand { font-weight: 700; letter-spacing: .02em; }
+.brand span { color: var(--muted); font-weight: 500; }
+nav a { margin-left: 18px; color: var(--muted); font-size: .95rem; }
+nav a:first-child { margin-left: 0; }
+.hero { padding: 48px 0 40px; }
+.hero h1 { font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.1; margin: 0 0 18px; max-width: 16ch; }
+.hero p.lead { font-size: 1.15rem; color: var(--muted); max-width: 60ch; margin: 0 0 28px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-block; padding: 11px 18px; border-radius: 8px; font-weight: 600; font-size: .95rem; }
+.btn.primary { background: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { .btn.primary { color: #0b1230; } }
+.btn.ghost { border: 1px solid var(--line); color: var(--fg); background: var(--card); }
+.btn:hover { text-decoration: none; filter: brightness(1.05); }
+section { padding: 44px 0; border-top: 1px solid var(--line); }
+section h2 { font-size: 1.5rem; margin: 0 0 8px; }
+section p.sub { color: var(--muted); margin: 0 0 26px; max-width: 64ch; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.stat b { display: block; font-size: 1.9rem; line-height: 1.2; }
+.stat span { color: var(--muted); font-size: .92rem; }
+.verdict { margin-top: 18px; background: var(--card); border: 1px solid var(--line);
+           border-left: 4px solid var(--crit); border-radius: 10px; padding: 16px 18px; }
+.verdict strong { color: var(--crit); }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.step { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.step small { display: block; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+.step b { display: block; margin: 2px 0 6px; }
+.step p { margin: 0; font-size: .9rem; color: var(--muted); }
+.arrow { align-self: center; color: var(--muted); font-size: 1.2rem; }
+@media (max-width: 720px) { .arrow { display: none; } }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+.card p { margin: 0; color: var(--muted); font-size: .95rem; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 16px;
+      overflow-x: auto; font-size: .88rem; line-height: 1.5; margin: 0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.pill { display: inline-block; background: var(--accent-soft); color: var(--accent); border-radius: 999px;
+        padding: 2px 10px; font-size: .8rem; font-weight: 600; margin-bottom: 14px; }
+.note { color: var(--muted); font-size: .9rem; margin-top: 14px; }
+footer { padding: 30px 0 50px; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">ECVT <span>· Edge Case Validation Toolkit</span></div>
+    <nav><a href="#how">How it works</a><a href="#start">Quick start</a><a href="https://github.com/aozan88/ecvt">GitHub</a></nav>
+  </header>
+
+  <div class="hero">
+    <span class="pill">v1.0 · built on the Claude Agent SDK</span>
+    <h1>Find what breaks before your users do.</h1>
+    <p class="lead">ECVT reads an API's OpenAPI spec, writes the edge cases a tester would think of —
+      races, replays, bad input, access control — runs them against the live system, and tells you
+      what broke, with the evidence and a release recommendation.</p>
+    <div class="cta">
+      <a class="btn primary" href="sample/report-business.html">See a real report</a>
+      <a class="btn ghost" href="sample/report-dev.html">Developer report</a>
+      <a class="btn ghost" href="#start">Run it</a>
+    </div>
+  </div>
+
+  <section id="results">
+    <h2>Measured, not claimed</h2>
+    <p class="sub">The demo target is a small wallet API with ten deliberate defects. ECVT never sees
+      the defect list; it is only used afterwards to count what a run caught.</p>
+    <div class="stats">
+      <div class="stat"><b>7 / 10</b><span>known defects caught — median of five runs, range 6–8</span></div>
+      <div class="stat"><b>20–40 s</b><span>per run: 14 scenarios generated, executed and scored</span></div>
+      <div class="stat"><b>~$0.01</b><span>model cost per run on the fixed chain</span></div>
+      <div class="stat"><b>0</b><span>defects reported when the target is down — every scenario scores "not run"</span></div>
+    </div>
+    <div class="verdict"><strong>Not ready to release</strong> — from the sample run: ten parallel transfers
+      overdrew an account to −500, and one transfer sent three times was applied three times.
+      <a href="sample/report-business.html">Read the full report →</a></div>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p class="sub">Five agents, each doing one job. Code holds the order and the state; the model
+      decides only what needs judgement.</p>
+    <div class="flow">
+      <div class="step"><small>01 · Manager</small><b>Plans the run</b><p>Classifies the request, picks the stages, retries or stops.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><small>02 · Domain intel</small><b>Models the domain</b><p>Entities, rules and the gaps the spec leaves open.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><small>03 · Scenarios</small><b>Writes the tests</b><p>Seven categories, each runnable exactly as written.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><small>05 · Execution</small><b>Runs them</b><p>Through a plugin; races and replays really fire.</p></div>
+      <div class="arrow">→</div>
+      <div class="step"><small>06 · Evaluation</small><b>Scores them</b><p>Deterministic rules first, an AI judge only where they can't decide.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What's inside</h2>
+    <p class="sub">Domain-agnostic core; everything specific to a system lives in a plugin.</p>
+    <div class="grid">
+      <div class="card"><h3>Plugins</h3><p><code>rest_api</code> for any HTTP API; <code>wallet</code> adds seven money rules — no negative balance, a replayed transfer moves money once, balances reconcile.</p></div>
+      <div class="card"><h3>MCP scoring server</h3><p><code>ecvt-eval</code> exposes the rule engine as an MCP tool. Evaluation scores through it, and so can Claude Code or any MCP client.</p></div>
+      <div class="card"><h3>Two reports</h3><p>Business: a release recommendation and findings in plain words. Developer: failing checks, the judge's reasoning and a request-by-request repro.</p></div>
+      <div class="card"><h3>n8n trigger</h3><p>A webhook starts a run and answers with the result — from CI, a chat command or a schedule.</p></div>
+      <div class="card"><h3>Gates and evals</h3><p>Every agent has an eval set judged over repeated runs; a milestone closes only when its gate passes.</p></div>
+      <div class="card"><h3>Ground truth stays out</h3><p>The defect list is read in one place — the catch-rate report — and never by an agent.</p></div>
+    </div>
+  </section>
+
+  <section id="start">
+    <h2>Quick start</h2>
+    <p class="sub">Python 3.11+ and an Anthropic API key in <code>.env</code>.</p>
+<pre><code>pip install -r requirements.txt
+uvicorn app:app --app-dir examples/wallet-api --port 8000 &amp;   # demo target
+
+ecvt run --plugin wallet --report             # generate → execute → score → reports
+ecvt run --manager --plugin wallet --report   # the same run, planned by the Manager
+ecvt report artifacts                         # Dev + Business reports for a finished run
+ecvt serve                                    # HTTP trigger for n8n</code></pre>
+    <p class="note">Reports land in the run directory as Markdown and HTML.</p>
+  </section>
+
+  <footer>ECVT · AI quality engineering on the Claude Agent SDK · <a href="https://github.com/aozan88/ecvt">github.com/aozan88/ecvt</a></footer>
+</div>
+</body>
+</html>

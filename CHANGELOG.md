@@ -33,6 +33,14 @@ stays where it is.
   No in-process fallback: a server that cannot start fails the scoring
   (`EvalServerError`). Over 10 recorded runs, 282 scorings via stdio match the
   in-process rules exactly.
+- **Landing page (M3-T6).** `landing/index.html` replaces the stub: what ECVT
+  does, the measured numbers (median 7/10 over five runs, 20–40 s and ~$0.01
+  per run, zero defects reported against a down target), how the five agents
+  divide the work, what ships in v1.0, and a quick start. `landing/sample/`
+  holds the Business and Dev reports of a real recorded run, linked from the
+  page. `.github/workflows/pages.yml` publishes `landing/` to GitHub Pages on
+  push to `main`. The demo video is deferred (ADR 0015); G3-12 checks the page
+  and both sample reports are live.
 - **n8n trigger (M3-T5).** `ecvt serve` (standard library, no new
   dependency): `POST /runs` runs `ecvt run … --report` in a subprocess and
   answers with status, run directory, the Business recommendation, verdicts,
