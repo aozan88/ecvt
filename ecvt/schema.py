@@ -16,7 +16,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -121,7 +121,15 @@ class Expectation(BaseModel):
         return v
 
 
-class Scenario(BaseModel):
+class ScenarioCore(BaseModel):
+    """A scenario minus how many times its action is sent.
+
+    Split out so the wire format can ask for `repeat` and `concurrency` only in
+    the categories where they mean something (see `ScenarioDraft`). Reading a
+    scenario from a file or writing one by hand goes through `Scenario`, which
+    defaults both to 1 — that behaviour is unchanged.
+    """
+
     id: str = Field(description="Stable id, lowercase slug, e.g. 'sc-001' or 'sc-overdraft'.")
     title: str = Field(description="One short line naming what is probed.")
     category: ScenarioCategory
@@ -134,15 +142,9 @@ class Scenario(BaseModel):
     )
     action: HttpStep = Field(description="The single step under test.")
     expectation: Expectation
-    repeat: int = Field(
-        default=1, ge=1, le=50, description="Send the action N times (idempotency / replay)."
-    )
-    concurrency: int = Field(
-        default=1, ge=1, le=50, description="Send the action N times in parallel (race)."
-    )
 
     @model_validator(mode="after")
-    def _unique_step_names(self) -> Scenario:
+    def _unique_step_names(self) -> ScenarioCore:
         names = [s.name for s in self.setup] + [self.action.name]
         dupes = [n for n, c in Counter(names).items() if c > 1]
         if dupes:
@@ -150,36 +152,167 @@ class Scenario(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _probes_are_reads(self) -> Scenario:
+    def _probes_are_reads(self) -> ScenarioCore:
         bad = [p.name for p in self.expectation.probes if p.method is not HttpMethod.GET]
         if bad:
             raise ValueError(f"probes must be GET in {self.id}: {bad}")
         return self
 
 
-class ScenarioDraft(Scenario):
-    """The per-scenario wire format: `repeat` and `concurrency` are required.
+class Scenario(ScenarioCore):
+    """A scenario as the rest of ECVT uses it: both execution modes always present.
 
-    On `Scenario` both fields default to 1, which is right for a scenario
-    written by hand or read back from a file. But a defaulted field is an
-    optional field, and the generator left both out of all 14 scenarios —
-    including one titled "Many parallel transfers racing" — even after the
-    prompt spelled the requirement out in two places. A set where every
-    scenario is concurrency=1, repeat=1 cannot reach a race or a double-spend
-    however its categories are labelled.
-
-    Dropping the defaults makes the model state a number per scenario, so the
-    decision is taken rather than skipped. Whether the set as a whole actually
-    exercises a race and a replay is a policy question, checked by the
-    generator's validator where a correction can be fed back and retried.
+    `repeat` and `concurrency` default to 1, which is what a hand-written
+    scenario or one read back from `scenarios.jsonl` wants.
     """
 
+    repeat: int = Field(
+        default=1, ge=1, le=50, description="Send the action N times (idempotency / replay)."
+    )
+    concurrency: int = Field(
+        default=1, ge=1, le=50, description="Send the action N times in parallel (race)."
+    )
+
+
+LOAD_CATEGORIES: tuple[ScenarioCategory, ...] = (
+    ScenarioCategory.STRESS,
+    ScenarioCategory.ADVERSARIAL,
+)
+"""The categories whose point is sending the action more than once.
+
+The prompt already maps them that way: a race is what `stress` probes, a replay
+is what `adversarial` probes. Everywhere else 1 is the only sensible value.
+"""
+
+PLAIN_CATEGORIES: tuple[ScenarioCategory, ...] = tuple(
+    c for c in ALL_CATEGORIES if c not in LOAD_CATEGORIES
+)
+
+
+class StressScenarioDraft(ScenarioCore):
+    """`stress`: a race is what the category probes, so `concurrency` must be above 1.
+
+    A `stress` scenario left at `concurrency: 1` is a single request with a
+    label — the generator has produced exactly that, including one titled "Many
+    parallel transfers racing". Here the schema does not merely ask for the
+    number, it rules out the value that makes the category a lie.
+    """
+
+    category: Literal[ScenarioCategory.STRESS]
     repeat: int = Field(
         ge=1, le=50, description="Send the action N times (idempotency / replay). 1 = once."
     )
     concurrency: int = Field(
+        ge=2,
+        le=50,
+        description="How many copies of the action run at once. Must be 2 or more: "
+        "one sequential request cannot expose a race.",
+    )
+
+    def to_scenario(self) -> Scenario:
+        return Scenario.model_validate(self.model_dump())
+
+
+class AdversarialScenarioDraft(ScenarioCore):
+    """`adversarial`: both numbers are asked for, neither is forced above 1.
+
+    Replay and double-submit need `repeat`, but the category is wider than that
+    — ordering tricks and malformed sequences probe abuse without sending the
+    action twice. Forcing `repeat >= 2` here would push every adversarial
+    scenario into one shape. The set-level check
+    (`ScenarioSetDraft.missing_execution_modes`) is what catches a writing set
+    in which nothing replays.
+    """
+
+    category: Literal[ScenarioCategory.ADVERSARIAL]
+    repeat: int = Field(
+        ge=1,
+        le=50,
+        description="Send the action N times in sequence. Above 1 for replay or "
+        "double-submit; 1 for abuse that does not need a duplicate.",
+    )
+    concurrency: int = Field(
         ge=1, le=50, description="Send the action N times in parallel (race). 1 = no race."
     )
+
+    def to_scenario(self) -> Scenario:
+        return Scenario.model_validate(self.model_dump())
+
+
+class PlainScenarioDraft(ScenarioCore):
+    """The other five categories: neither number appears in the schema at all.
+
+    Requiring both on every scenario asked the model for 28 numbers at the
+    default quota, 24 of which could only sensibly be 1, and it omitted some
+    often enough to cost an attempt — with a02's DomainModel in the prompt, no
+    generation validated on its first try. Asking only where the number is the
+    point cuts that to 8 (measured in CHANGELOG › Measured).
+
+    Code supplies 1 and 1 on the way to `Scenario`.
+    """
+
+    category: Literal[
+        ScenarioCategory.HAPPY,
+        ScenarioCategory.EDGE,
+        ScenarioCategory.SECURITY,
+        ScenarioCategory.NEGATIVE,
+        ScenarioCategory.PERSONA,
+    ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _execution_modes_belong_to_a_load_category(cls, data: Any) -> Any:
+        """Tolerate `repeat`/`concurrency` at 1; refuse them above it.
+
+        The fields are not in this branch's schema, so a model that sends them
+        anyway is working from memory. At 1 it is saying what the code would
+        have written, which is no reason to fail a whole set. Above 1 it is
+        describing a race or a replay under a category that does not run one,
+        and the right correction is the category, not the number — rejecting it
+        as an unknown field would not say that.
+        """
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for name in ("repeat", "concurrency"):
+            if name not in out:
+                continue
+            value = out.pop(name)
+            if value in (1, None):
+                continue
+            categories = " or ".join(c.value for c in LOAD_CATEGORIES)
+            raise ValueError(
+                f"{name}={value!r} on a {out.get('category', '?')} scenario: only "
+                f"{categories} send the action more than once. If this probes a race "
+                f"or a replay, change `category` to {categories}; otherwise drop "
+                f"`{name}` — it is 1 everywhere else and the code fills it in."
+            )
+        return out
+
+    @property
+    def repeat(self) -> int:
+        return 1
+
+    @property
+    def concurrency(self) -> int:
+        return 1
+
+    def to_scenario(self) -> Scenario:
+        return Scenario.model_validate(self.model_dump())
+
+
+ScenarioDraft = Annotated[
+    StressScenarioDraft | AdversarialScenarioDraft | PlainScenarioDraft,
+    Field(discriminator="category"),
+]
+"""The per-scenario wire format, split by category (ADR 0011).
+
+Three branches rather than one model with two optional fields: the generator is
+asked for the numbers where they are the probe, asked with a floor where the
+category *is* the probe (`stress`), and not asked at all where they are noise.
+`category` is the discriminator, so a wrong-branch payload is reported against
+the branch its own category names.
+"""
 
 
 class ScenarioSetDraft(BaseModel):

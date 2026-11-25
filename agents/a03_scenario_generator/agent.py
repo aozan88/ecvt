@@ -43,13 +43,36 @@ def load_system_prompt() -> str:
     return (AGENT_DIR / "system_prompt.md").read_text(encoding="utf-8")
 
 
+LEADING_SCENARIO_KEYS = ("category", "repeat", "concurrency")
+"""Properties moved to the front of each scenario branch in the tool schema.
+
+`category` selects the branch and the two numbers are what the branch is about,
+so they read first. Pydantic emits inherited fields before a subclass's own, which
+would bury `repeat` and `concurrency` under eight keys they qualify.
+"""
+
+
+def _lead_with_execution_modes(schema: dict[str, Any]) -> dict[str, Any]:
+    """Reorder each scenario branch's properties, leaving the schema otherwise as is."""
+    for definition in (schema.get("$defs") or {}).values():
+        properties = definition.get("properties")
+        if not isinstance(properties, dict) or "category" not in properties:
+            continue
+        lead = [k for k in LEADING_SCENARIO_KEYS if k in properties]
+        definition["properties"] = {
+            **{k: properties[k] for k in lead},
+            **{k: v for k, v in properties.items() if k not in lead},
+        }
+    return schema
+
+
 def build_tool() -> dict[str, Any]:
     """The forced tool, with its input schema generated from the Pydantic model.
 
     Generating it keeps `tools.json` from drifting away from `ecvt.schema`;
     `tests/test_tools_json_in_sync.py` asserts the committed copy matches.
     """
-    schema = ScenarioSetDraft.model_json_schema()
+    schema = _lead_with_execution_modes(ScenarioSetDraft.model_json_schema())
     schema.pop("title", None)
     return {
         "name": TOOL_NAME,
@@ -179,7 +202,9 @@ def generate_scenario_set(
     scenario_set = ScenarioSet(
         target=target,
         spec_title=digest.title,
-        scenarios=draft.scenarios,
+        # A draft is not a Scenario: the plain branch has no `repeat` or
+        # `concurrency` at all, and code fills in 1 and 1 here.
+        scenarios=[s.to_scenario() for s in draft.scenarios],
         model=model,
     )
     return scenario_set, result

@@ -225,6 +225,12 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
             "subagent_cost_usd": round(subagent_cost, 6),
             "manager_cost_usd": round(manager_cost, 6),
             "manager_turns": session.get("num_turns"),
+            # Tokens and cost per model inside the Manager's own session, as the
+            # SDK reports them. manager_cost_usd above is their total and stays;
+            # this says which model spent it. The Manager runs on Sonnet, so a
+            # Haiku row here is what relaying stage results cost, not the work
+            # itself — the stage runners' own spend is subagent_cost_usd.
+            "manager_model_usage": session.get("model_usage") or {},
         },
     }
     (run_dir / "run.json").write_text(

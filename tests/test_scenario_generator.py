@@ -17,7 +17,7 @@ import pytest
 
 from agents.a03_scenario_generator import agent as sg
 from ecvt.llm import StructuredCallError, Usage
-from ecvt.schema import ALL_CATEGORIES, read_scenarios_jsonl
+from ecvt.schema import ALL_CATEGORIES, ScenarioCategory, read_scenarios_jsonl
 from tests.test_schema import make_scenario
 
 WALLET_SPEC = "examples/wallet-api/openapi.json"
@@ -136,11 +136,35 @@ def test_tool_schema_generated_from_pydantic():
     schema = tool["input_schema"]
     assert schema["type"] == "object"
     assert schema["required"] == ["scenarios"]
-    assert set(schema["$defs"]) >= {"ScenarioDraft", "HttpStep", "Expectation", "ScenarioCategory"}
-    # The wire model makes both required, so the model has to state a number
-    # per scenario rather than silently inheriting 1 (see ScenarioDraft).
-    assert {"repeat", "concurrency"} <= set(schema["$defs"]["ScenarioDraft"]["required"])
-    assert schema["$defs"]["ScenarioCategory"]["enum"] == [c.value for c in ALL_CATEGORIES]
+
+    # Three branches over `category` (ADR 0011): the numbers are asked for where
+    # they are the probe and absent where they would only ever be 1.
+    defs = schema["$defs"]
+    assert {"StressScenarioDraft", "AdversarialScenarioDraft", "PlainScenarioDraft"} <= set(defs)
+    assert {"HttpStep", "Expectation"} <= set(defs)
+
+    item = schema["properties"]["scenarios"]["items"]
+    assert [b["$ref"].split("/")[-1] for b in item["oneOf"]] == [
+        "StressScenarioDraft",
+        "AdversarialScenarioDraft",
+        "PlainScenarioDraft",
+    ]
+    assert item["discriminator"]["propertyName"] == "category"
+    # Every category routes somewhere, so no category can fall between branches.
+    assert set(item["discriminator"]["mapping"]) == {c.value for c in ALL_CATEGORIES}
+
+    for name in ("StressScenarioDraft", "AdversarialScenarioDraft"):
+        assert {"repeat", "concurrency"} <= set(defs[name]["required"]), name
+    assert defs["StressScenarioDraft"]["properties"]["concurrency"]["minimum"] == 2
+    assert defs["AdversarialScenarioDraft"]["properties"]["repeat"]["minimum"] == 1
+
+    plain = defs["PlainScenarioDraft"]["properties"]
+    assert "repeat" not in plain and "concurrency" not in plain
+
+    # Read order: the discriminator, then what the branch is about.
+    for name in ("StressScenarioDraft", "AdversarialScenarioDraft"):
+        assert list(defs[name]["properties"])[:3] == ["category", "repeat", "concurrency"], name
+    assert next(iter(plain)) == "category"
 
 
 def test_committed_tools_json_matches_generated_schema():
@@ -241,21 +265,46 @@ def test_retry_on_missing_category():
     assert retry[-1]["content"][0]["is_error"] is True
 
 
-def test_retry_when_the_set_never_races_or_replays():
-    """A wholly sequential set is rejected and the omission is fed back.
+def test_a_stress_scenario_cannot_sit_at_concurrency_one():
+    """The schema refuses it now, so this never reaches the set-level check.
 
-    This is the defect the live eval caught: 14 scenarios, every one at
-    concurrency=1 and repeat=1, including one titled "Many parallel transfers
-    racing". Such a set cannot reach a race or a double-spend, so the prompt
-    asked for both — and was ignored twice. The requirement now lives in the
-    validator, where the model is shown what it missed.
+    A `stress` scenario at `concurrency: 1` is a single request with a label —
+    the generator shipped one titled "Many parallel transfers racing". The
+    category's branch requires 2 or more, so the lie is a validation error
+    rather than something the set check has to notice afterwards (ADR 0011).
     """
-    sequential = {
+    flat = {"scenarios": [make_scenario("sc-001", "stress", concurrency=1, repeat=1)]}
+    client = FakeClient([tool_use(flat), tool_use(full_payload())])
+
+    _, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+
+    assert result.attempts == 2
+    correction = correction_text(client)
+    assert "concurrency" in correction
+    assert "greater than or equal to 2" in correction
+
+
+def test_retry_when_a_writing_set_never_replays():
+    """The set-level check is the net for the replay side.
+
+    `stress` guarantees the race by schema, but `adversarial` asks for `repeat`
+    without forcing it above 1 — the category covers ordering tricks that need
+    no duplicate. So a writing set in which nothing replays is still possible,
+    and `missing_execution_modes` is what rejects it.
+    """
+    no_replay = {
         "scenarios": [
-            make_scenario(f"sc-{i:03d}", c.value) for i, c in enumerate(ALL_CATEGORIES, start=1)
+            make_scenario(
+                f"sc-{i:03d}",
+                c.value,
+                **({"concurrency": 4} if c is ScenarioCategory.STRESS else {}),
+            )
+            for i, c in enumerate(ALL_CATEGORIES, start=1)
         ]
     }
-    client = FakeClient([tool_use(sequential), tool_use(full_payload())])
+    client = FakeClient([tool_use(no_replay), tool_use(full_payload())])
 
     scenario_set, result = sg.generate_scenario_set(
         spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
@@ -263,9 +312,8 @@ def test_retry_when_the_set_never_races_or_replays():
 
     assert result.attempts == 2
     correction = correction_text(client)
-    assert "`concurrency` above 1" in correction
     assert "`repeat` above 1" in correction
-    assert any(s.concurrency > 1 for s in scenario_set.scenarios)
+    assert "`concurrency` above 1" not in correction  # the race was already there
     assert any(s.repeat > 1 for s in scenario_set.scenarios)
 
 
@@ -277,7 +325,8 @@ def test_a_read_only_set_need_not_replay():
     """
     reads = []
     for i, c in enumerate(ALL_CATEGORIES, start=1):
-        s = make_scenario(f"sc-{i:03d}", c.value)
+        extra = {"concurrency": 4} if c is ScenarioCategory.STRESS else {}
+        s = make_scenario(f"sc-{i:03d}", c.value, **extra)
         s["setup"] = []
         s["action"] = {"name": "read", "method": "GET", "path": "/accounts/1/balance"}
         s["expectation"]["probes"] = []

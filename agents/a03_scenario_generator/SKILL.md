@@ -82,10 +82,13 @@ Category starters for a transactional API:
 |---|---|
 | happy | the intended flow end to end, as a baseline |
 | edge | exact-balance, zero, empty string, self-reference (from == to) |
-| stress | `concurrency: 10` on the same record |
+| stress | `concurrency: 10` on the same record (2 or more, always) |
 | security | act on a resource created by a different owner |
 | negative | wrong type, missing required field, negative amount |
 | adversarial | `repeat: 2` on a non-idempotent write |
+
+`repeat` and `concurrency` are fields of these two categories only — the other
+five do not carry them.
 | persona | a plausible user sequence whose middle step is invalid |
 
 ## Anti-patterns
