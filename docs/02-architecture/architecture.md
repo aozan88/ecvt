@@ -1,9 +1,9 @@
 # Architecture
 
-> v1.2 · 2026-11-25 · Max 10 pages. The M1 chain (Scenario → Execution →
+> v1.3 · 2026-11-25 · Max 10 pages. The M1 chain (Scenario → Execution →
 > Evaluation) and the M2 additions — Manager (a01) and Domain Intelligence
 > (a02) — are all live on `main` (PRs #25, #26); M3 adds the plugin layer
-> (M3-T1 #37, M3-T2 #38) and the ecvt-eval MCP server (M3-T3). Stage contracts, context passing and error
+> (M3-T1 #37, M3-T2 #38) the ecvt-eval MCP server (M3-T3) and the Dev + Business reports (M3-T4). Stage contracts, context passing and error
 > handling: [`pipeline.md`](pipeline.md).
 
 ## 1. System context
@@ -20,7 +20,8 @@ flowchart LR
     P <-->|HTTP| T[(Target system<br/>e.g. wallet-api)]
     P -.->|domain_rules| ES
     M <-->|state.json, artifacts| R[(runs/run_id/)]
-    EV -->|scores, catch rate| U
+    EV -->|scores| RP[Reports<br/>Dev · Business · catch rate]
+    RP --> U
 ```
 
 ECVT validates an existing system; it never generates product code.
@@ -31,7 +32,7 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 
 | Component | Job | Model call | Code |
 |---|---|---|---|
-| CLI | Entry point. `ecvt run` runs the fixed chain; `--manager` hands the request to the Manager. `--plugin <name>` (default `rest_api`) is resolved on both paths before any model call | none | `ecvt/cli.py` |
+| CLI | Entry point. `ecvt run` runs the fixed chain; `--manager` hands the request to the Manager. `--plugin <name>` (default `rest_api`) is resolved on both paths before any model call. `ecvt report <run_dir>` writes the Dev + Business reports for a finished run | none | `ecvt/cli.py` |
 | Manager (a01) | Classify intent, extract slots, decide retry/stop, write the summary | Agent SDK `query()`, Sonnet | `agents/a01_manager/` |
 | Domain Intelligence (a02) | OpenAPI spec → DomainModel (entities, workflows, rules, gaps) | Messages API, forced tool use, Haiku | `agents/a02_domain_intelligence/` |
 | Scenario Generator (a03) | Spec → ScenarioSet across 7 categories (the DomainModel is not passed in; ADR 0012) | Messages API, forced tool use, Haiku | `agents/a03_scenario_generator/` |
@@ -39,6 +40,7 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 | Evaluation (a06) | Rule dimension from ecvt-eval, then LLM-as-judge on what rules cannot decide; folds both into the verdict | Messages API, Haiku (judge) | `agents/a06_evaluation/` |
 | ecvt-eval (MCP server) | `score_response`: generic rule checks plus the plugin's domain rules; `list_rules`. Stdio subprocess of a06, also usable by any MCP client | **none** | `ecvt/eval_server.py`, `ecvt/scoring.py` (ADR 0014) |
 | Plugins | How a kind of target is reached (`execute`) and, optionally, its domain rules (`domain_rules`). Never scores. Registry = directories under `plugins/` | none | `plugins/` (ADRs 0003, 0010, 0013) |
+| Reports | Dev + Business reports (Markdown + HTML) from one run directory; no ground truth, so they work for any target. The demo's catch rate (`report.md`) is separate and the only reader of ground truth. Code, not the a08 agent (v1.2) | **none** | `ecvt/audience_reports.py`, `ecvt/reporting.py` |
 | Eval harness + gates | Agent eval datasets, milestone gates | judge calls only | `scripts/eval_runner.py`, `scripts/gate_check.py` |
 
 Model choice: ADR 0005. Why subagents use the Messages API and only the
@@ -79,7 +81,10 @@ The course vocabulary (Anthropic, "Agents and workflows") mapped onto ECVT.
 ## 5. Data and state
 
 - M1 CLI run: `scenarios.jsonl`, `executions.jsonl`, `scores.jsonl`, `run.json`
-  (tokens, cost, timing) in the output directory.
+  (tokens, cost, timing, plugin) in the output directory. A reused scenario set
+  is copied in, so a run directory stands on its own.
+- `--report` (or `ecvt report <run_dir>`) adds `report-business.{md,html}` and
+  `report-dev.{md,html}`; with a baseline, also `report.md` (catch rate).
 - M2 Manager run: `runs/<run_id>/state.json` (schema
   `agents/a01_manager/pipeline_state.schema.json`), one JSON artifact per stage.
   Only code writes state.

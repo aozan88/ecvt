@@ -21,6 +21,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
 import time
 from datetime import UTC, datetime
@@ -88,6 +89,10 @@ def run_chain(args: argparse.Namespace) -> int:
     if args.scenarios:
         _stage(f"reusing scenarios from {args.scenarios}", 1, total)
         scenarios = read_scenarios_jsonl(args.scenarios)
+        # A run directory stands on its own: the reports read the scenarios from
+        # it, so a reused set is copied in rather than referenced.
+        if Path(args.scenarios).resolve() != scenarios_path.resolve():
+            shutil.copyfile(args.scenarios, scenarios_path)
         spec_title = None
     else:
         from agents.a03_scenario_generator.agent import generate_scenario_set
@@ -147,6 +152,7 @@ def run_chain(args: argparse.Namespace) -> int:
     run_meta: dict[str, Any] = {
         "target": args.target,
         "base_url": args.base_url,
+        "plugin": plugin.name,
         "spec_title": spec_title,
         "finished_at": datetime.now(UTC).isoformat(),
         # Millisecond precision on purpose: run.json is machine-read for the
@@ -223,6 +229,8 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
     meta = {
         "target": state["intent"]["slots"].get("target_system") if state["intent"] else None,
         "base_url": os.environ.get("ECVT_BASE_URL", DEFAULT_BASE_URL),
+        "plugin": (state["intent"]["slots"].get("plugin") if state["intent"] else None)
+        or "rest_api",
         "via": "manager",
         "run_id": state["run_id"],
         "elapsed_s": round(elapsed_s, 3),
@@ -329,6 +337,11 @@ def _write_report(args: argparse.Namespace, out_dir: Path) -> None:
     A target with no baseline is normal — not every system ships one — so the
     absence is reported, not treated as a failure.
     """
+    from ecvt.audience_reports import write_reports
+
+    written = write_reports(out_dir)
+    print(f"      Dev + Business reports → {', '.join(p.name for p in written)}")
+
     baseline = Path(args.target) / "ground_truth.yaml"
     if not baseline.exists():
         print(f"      no baseline at {baseline}, so no catch rate")
@@ -375,6 +388,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ecvt", description="ECVT — AI Quality Engineering.")
     sub = parser.add_subparsers(dest="command")
 
+    report = sub.add_parser(
+        "report", help="Write the Dev and Business reports (Markdown + HTML) for a run."
+    )
+    report.add_argument("run_dir", help="A run directory written by `ecvt run`.")
+
     run = sub.add_parser("run", help="Generate, execute and score against a target.")
     run.add_argument(
         "--target",
@@ -404,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--report",
         action="store_true",
-        help="Also write report.md with the catch rate against the target's baseline.",
+        help="Also write the Dev + Business reports and, with a baseline, report.md (catch rate).",
     )
     run.add_argument(
         "--manager",
@@ -431,6 +449,18 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.command == "report":
+        from ecvt.audience_reports import write_reports
+
+        try:
+            written = write_reports(args.run_dir)
+        except (OSError, ValueError) as exc:
+            print(f"Could not write the reports: {exc}", file=sys.stderr)
+            return 1
+        for path in written:
+            print(path)
+        return 0
 
     if args.command != "run":
         parser.print_help()

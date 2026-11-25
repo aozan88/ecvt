@@ -100,7 +100,9 @@ def test_run_writes_three_files_and_run_json(live_target, scenarios_file, tmp_pa
     )
     assert code == 0
 
-    assert not (out / "scenarios.jsonl").exists(), "reused scenarios are not rewritten"
+    # Reused scenarios are copied in byte for byte, never regenerated or re-serialised:
+    # the run directory has to stand on its own for `ecvt report` (M3-T4).
+    assert (out / "scenarios.jsonl").read_bytes() == scenarios_file.read_bytes()
     executions = [json.loads(x) for x in (out / "executions.jsonl").read_text().splitlines()]
     scores = [json.loads(x) for x in (out / "scores.jsonl").read_text().splitlines()]
     assert len(executions) == 3

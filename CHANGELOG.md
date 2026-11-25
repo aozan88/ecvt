@@ -33,6 +33,17 @@ stays where it is.
   No in-process fallback: a server that cannot start fails the scoring
   (`EvalServerError`). Over 10 recorded runs, 282 scorings via stdio match the
   in-process rules exactly.
+- **Dev + Business reports (M3-T4).** `ecvt report <run_dir>`, and
+  `ecvt run --report`, write `report-business` and `report-dev` as Markdown and
+  HTML from one document model, with no model call and no ground truth, so they
+  work for any target. Business: a release recommendation by worst severity,
+  findings in plain words, what was tested by area, what was not settled, cost.
+  Dev: failing checks with expected/observed, the judge's verdict and
+  rationale, a request/response repro per finding, inconclusive and not-run
+  scenarios with their reason. Where the judge passed a scenario a rule failed,
+  the rule's finding is shown, not the judge's account. `run.json` now records
+  the plugin, and a reused scenario set is copied into the run directory. G3-10
+  is a real check now.
 - **`gates/M3.yaml` (G3).** 14 checks for the Master Plan's six G3 items:
   plugins by name, both plugins run live, ecvt-eval over stdio and a06 with no
   in-process rule path, evals (a03 and a06 pooled over 3 runs), pytest, catch
