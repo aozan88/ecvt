@@ -179,6 +179,12 @@ def manager_request(target: str, plugin: str) -> str:
     )
 
 
+def _a03_gets_domain_model() -> bool:
+    from agents.a01_manager.runners import a03_gets_domain_model
+
+    return a03_gets_domain_model()
+
+
 def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0.0) -> Path:
     """Turn the Manager's per-stage JSON artifacts into the M1 file set
     (scenarios / executions / scores .jsonl + run.json) so reporting is unchanged."""
@@ -223,6 +229,9 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
         # so there is no run through here with the judge off.
         "judge_enabled": True,
         "model": os.environ.get("ECVT_SUBAGENT_MODEL"),
+        # Which arm of ADR 0012 this run belongs to; without it two runs that
+        # differ only in what a03 was handed cannot be told apart afterwards.
+        "a03_domain_model": "on" if _a03_gets_domain_model() else "off",
         "usage": {
             "total_tokens": sum(int(u.get("total_tokens") or 0) for u in stage_usage),
             "cost_usd": round(subagent_cost + manager_cost, 6),

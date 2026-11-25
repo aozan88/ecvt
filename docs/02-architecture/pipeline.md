@@ -37,7 +37,7 @@ succeeded.
 | Stage | Input | Output | Artifact |
 |---|---|---|---|
 | domain_intel (a02) | OpenAPI spec | DomainModel | `domain_intel.json` |
-| scenario_gen (a03) | spec in M1; DomainModel from M2-T2 | ScenarioSet, 7 categories | `scenarios.jsonl` |
+| scenario_gen (a03) | spec; a02's DomainModel only with `ECVT_A03_DOMAIN_MODEL=on` (ADR 0012) | ScenarioSet, 7 categories | `scenarios.jsonl` |
 | execution (a05) | ScenarioSet + target via plugin | one execution record per scenario | `executions.jsonl` |
 | evaluation (a06) | execution records + ground truth | one score per scenario, catch rate | `scores.jsonl` |
 

@@ -30,7 +30,7 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 | CLI | Entry point. Today runs the fixed M1 chain; in M2 hands the request to the Manager | none | `ecvt/cli.py` |
 | Manager (a01) | Classify intent, extract slots, decide retry/stop, write the summary | Agent SDK `query()`, Sonnet | `agents/a01_manager/` |
 | Domain Intelligence (a02) | OpenAPI spec → DomainModel (entities, workflows, rules, gaps) | Messages API, forced tool use, Haiku | `agents/a02_domain_intelligence/` |
-| Scenario Generator (a03) | Spec (M1) or DomainModel (M2-T2) → ScenarioSet across 7 categories | Messages API, forced tool use, Haiku | `agents/a03_scenario_generator/` |
+| Scenario Generator (a03) | Spec → ScenarioSet across 7 categories (the DomainModel is not passed in; ADR 0012) | Messages API, forced tool use, Haiku | `agents/a03_scenario_generator/` |
 | Execution (a05) | Fire each scenario at the target, record what happened | **none** | `ecvt/execution.py` |
 | Evaluation (a06) | Rule checks, then LLM-as-judge on what rules cannot decide | Messages API, Haiku | `agents/a06_evaluation/`, `ecvt/scoring.py` |
 | Plugins | Target-specific adapters and rules | none | `plugins/` |

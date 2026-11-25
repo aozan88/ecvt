@@ -80,6 +80,24 @@ def _base_url() -> str:
     return os.environ.get("ECVT_BASE_URL", DEFAULT_BASE_URL)
 
 
+A03_DOMAIN_MODEL_ENV = "ECVT_A03_DOMAIN_MODEL"
+
+
+def a03_gets_domain_model() -> bool:
+    """Whether scenario_gen is handed a02's DomainModel (ADR 0012).
+
+    Off by default, per ADR 0012 (option B). Handed to a03, the DomainModel
+    showed no catch-rate benefit over six Manager runs a side and once taught a03
+    a wire field name the target does not use. a02 still runs; its DomainModel
+    stays an artifact of the run. `ECVT_A03_DOMAIN_MODEL=on` restores M2-T2 for
+    a larger measurement, which is the condition ADR 0012 sets for revisiting.
+    """
+    value = os.environ.get(A03_DOMAIN_MODEL_ENV, "off").strip().lower()
+    if value not in ("on", "off"):
+        raise ValueError(f"{A03_DOMAIN_MODEL_ENV} must be 'on' or 'off', not {value!r}")
+    return value == "on"
+
+
 # --------------------------------------------------------------------------- a02
 def run_domain_intel(stage_input: dict[str, Any]) -> dict[str, Any]:
     from agents.a02_domain_intelligence.agent import build_domain_model, summarize
@@ -108,12 +126,13 @@ def run_scenario_gen(stage_input: dict[str, Any]) -> dict[str, Any]:
     StageError = _error_cls()
     target = stage_input["slots"]["target_system"]
     domain_ref = stage_input["upstream"].get("domain_intel")
+    feed = domain_ref and a03_gets_domain_model()
     try:
         scenario_set, result = generate_scenario_set(
             spec_path=_spec_path(target),
             target=target,
             model=_model(),
-            domain_model=_load(domain_ref) if domain_ref else None,
+            domain_model=_load(domain_ref) if feed else None,
         )
     except StructuredCallError as e:
         raise StageError(_why("scenario set invalid", e), retryable=True) from e

@@ -54,7 +54,9 @@ def test_invalid_model_output_is_retryable(monkeypatch):
     assert exc.value.retryable is True
 
 
-def test_scenario_gen_receives_the_domain_model(monkeypatch, tmp_path):
+def test_scenario_gen_withholds_the_domain_model_unless_asked(monkeypatch, tmp_path):
+    """ADR 0012, option B: a02 still runs and its output is upstream, but a03 is
+    not handed it unless ECVT_A03_DOMAIN_MODEL=on — M2-T2 kept for measurement."""
     dm = {"rules": [{"id": "r1"}], "gaps": [], "workflows": []}
     ref = tmp_path / "domain_intel.json"
     ref.write_text(json.dumps(dm), encoding="utf-8")
@@ -65,10 +67,16 @@ def test_scenario_gen_receives_the_domain_model(monkeypatch, tmp_path):
         raise StructuredCallError("stop here", [], Usage(model="m"))
 
     monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", fake)
+    stage = _input("scenario_gen", {"target_system": WALLET}, {"domain_intel": str(ref)})
+
+    monkeypatch.delenv(runners.A03_DOMAIN_MODEL_ENV, raising=False)
     with pytest.raises(StageError):
-        runners.run_scenario_gen(
-            _input("scenario_gen", {"target_system": WALLET}, {"domain_intel": str(ref)})
-        )
+        runners.run_scenario_gen(stage)
+    assert seen["domain_model"] is None
+
+    monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, "on")
+    with pytest.raises(StageError):
+        runners.run_scenario_gen(stage)
     assert seen["domain_model"] == dm
 
 
@@ -286,6 +294,58 @@ def test_run_json_carries_per_model_usage(tmp_path):
     meta = json.loads((export_run_files(state, tmp_path) / "run.json").read_text("utf-8"))
     assert meta["usage"]["manager_cost_usd"] == 0.5  # the existing field is unchanged
     assert meta["usage"]["manager_model_usage"]["claude-sonnet-5-5"]["cost_usd"] == 0.5
+
+
+# --- ADR 0012: the DomainModel can be withheld from a03 --------------------
+
+
+def test_a03_does_not_get_the_domain_model_by_default(monkeypatch):
+    """ADR 0012, option B: no measured benefit, one measured harm."""
+    monkeypatch.delenv(runners.A03_DOMAIN_MODEL_ENV, raising=False)
+    assert runners.a03_gets_domain_model() is False
+
+
+def test_domain_model_can_be_withheld_from_a03(monkeypatch, tmp_path):
+    """`off` keeps the Manager run as it is and only stops a02's output reaching
+    a03 — the comparison ADR 0012 measures."""
+    dm = tmp_path / "domain_intel.json"
+    dm.write_text('{"rules": []}', encoding="utf-8")
+    seen = {}
+
+    def capture(**kwargs):
+        seen["domain_model"] = kwargs["domain_model"]
+        raise StructuredCallError("stop here", attempts=["x"], usage=Usage(model="m"))
+
+    monkeypatch.setattr(runners, "_spec_path", lambda target: target)
+    monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", capture)
+    stage = _input("scenario_gen", {"target_system": WALLET}, {"domain_intel": str(dm)})
+
+    for value, expected in (("on", {"rules": []}), ("off", None)):
+        monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, value)
+        with pytest.raises(StageError):
+            runners.run_scenario_gen(stage)
+        assert seen["domain_model"] == expected, value
+
+
+def test_a03_domain_model_setting_is_checked(monkeypatch):
+    monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, "maybe")
+    with pytest.raises(ValueError, match="'on' or 'off'"):
+        runners.a03_gets_domain_model()
+
+
+def test_run_json_records_the_adr_0012_arm(monkeypatch, tmp_path):
+    from ecvt.cli import export_run_files
+
+    store = mgr.StateStore(tmp_path)
+    state = store.create("run_arm", "x", "cli")
+    state["intent"] = {"name": "domain_analysis", "slots": {"target_system": WALLET}}
+    state["plan"] = ["domain_intel"]
+    state["stages"]["domain_intel"].update(status="succeeded", usage={})
+    state["status"] = "completed"
+
+    monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, "off")
+    meta = json.loads((export_run_files(state, tmp_path) / "run.json").read_text("utf-8"))
+    assert meta["a03_domain_model"] == "off"
 
 
 def test_execution_stage_uses_the_plugin_slot(monkeypatch, tmp_path):

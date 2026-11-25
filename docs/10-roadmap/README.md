@@ -28,11 +28,12 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
   with a02's DomainModel in the prompt, 6 of 8 validate and **none** on the
   first attempt, at 1.9× the cost. So a Manager run is probabilistic (~3 in 4)
   while the M1 chain is not — the DomainModel is what moves it.
-- **A02's DomainModel costs a03 reliability.** Taken with M2-T2 being
-  inconclusive on the catch rate, this is the clearest M2 result: the
-  DomainModel has no measured benefit downstream and two measured costs, a03's
-  omission rate and ~7× the run cost. M3 should either find the benefit with a
-  larger sample or reconsider feeding a03 this way.
+- **M2-T2's premise is retired (ADR 0012, option B).** Handing a03 the
+  DomainModel showed no catch-rate benefit over six Manager runs a side —
+  median 5 handed, 5.5 withheld — and in one run taught a03 a wire field name
+  the target does not use. a03 no longer receives it; a02 still runs and its
+  DomainModel stays an artifact, for the report (M3-T4). Revisiting needs a
+  larger measurement, and `ECVT_A03_DOMAIN_MODEL=on` keeps that possible.
 - **Tried and reverted:** restoring the `repeat`/`concurrency` defaults. Without
   them the model fills 1 everywhere and does not correct when the set-level
   check rejects it — 3 of 6 generations exhausted four attempts. The required
