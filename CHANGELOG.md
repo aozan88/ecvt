@@ -9,9 +9,12 @@ after `v0.5.0` and are not part of it: the tag records what was released, so it
 stays where it is.
 
 ### Changed
-- `ECVT_A03_DOMAIN_MODEL=on|off` (default `on`) withholds a02's DomainModel
-  from a03 without changing the rest of a Manager run, and `run.json` records
-  which arm a run was in as `a03_domain_model`. It exists for ADR 0012.
+- **a03 no longer receives a02's DomainModel** (ADR 0012, option B). Handed
+  to a03 it showed no catch-rate benefit and once taught it a wire field name
+  the target does not use. a02 still runs in `full_validation` and its
+  DomainModel stays an artifact of the run. `ECVT_A03_DOMAIN_MODEL=on` restores
+  M2-T2 for a larger measurement; `run.json` records which arm a run was in as
+  `a03_domain_model`.
 - `eval_runner --runs N` judges a dataset on its pooled rate over N runs and
   lists each case as stable pass, flaky or stable fail; G2-4 runs a02 three
   times. Gate checks now run under `bash -e -o pipefail` — before, G1-4 and
@@ -81,7 +84,7 @@ No measured benefit, no cost difference. The one difference with a mechanism:
 the DomainModel's rules, gaps and workflows name the account's id `account_id`
 20–29 times per run, after the path parameter, while the target answers
 `{"id": ...}`; in one run of six a03 saved `account_id` and that run caught
-1/10. The decision is ADR 0012's, which is Proposed.
+1/10. ADR 0012 accepted option B on this evidence.
 
 #### Catch rate — the reference from here on
 `scripts/n_run.py --runs 5`, wallet-api, `claude-haiku-5-5`. The figures that

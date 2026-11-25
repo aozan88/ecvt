@@ -1,6 +1,6 @@
 # ADR 0012 — Whether a03 is handed a02's DomainModel
 
-**Status:** Proposed — decision: Ozan
+**Status:** Accepted — option B (Ozan, 2026-11-25)
 **Date:** 2026-11-25
 **Context:** M2-T2 gives a03 the `rules`, `gaps` and `workflows` of a02's
 DomainModel, expecting domain knowledge to raise the catch rate. M2's n-run
@@ -33,6 +33,11 @@ the DomainModel's rules, gaps and workflows call the account's id `account_id`
   artifact for the report (M3-T4). One setting today, and the default flips.
   Dropping a02 from `full_validation` altogether would save its share of a run
   (about $0.01 of $0.07) and lose the artifact — a separate choice.
+
+**Decision:** B. a03 no longer receives the DomainModel by default
+(`ECVT_A03_DOMAIN_MODEL` now defaults to `off`); a02 keeps running and its
+output stays an artifact of the run. `on` remains for the larger measurement
+that revisiting this would need.
 
 **Not in scope:** domain hints, a curated slice of the DomainModel made for a03.
 The brief keeps them out of this decision.

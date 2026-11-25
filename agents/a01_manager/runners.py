@@ -86,14 +86,13 @@ A03_DOMAIN_MODEL_ENV = "ECVT_A03_DOMAIN_MODEL"
 def a03_gets_domain_model() -> bool:
     """Whether scenario_gen is handed a02's DomainModel (ADR 0012).
 
-    On by default — that is M2-T2. `ECVT_A03_DOMAIN_MODEL=off` keeps the whole
-    Manager run as it is, a02 included, and only withholds a02's output from
-    a03. That is the comparison ADR 0012 needs: the Manager path with and
-    without the DomainModel downstream, everything else held still. Comparing
-    the Manager path against the M1 chain instead would measure the
-    orchestration as well.
+    Off by default, per ADR 0012 (option B). Handed to a03, the DomainModel
+    showed no catch-rate benefit over six Manager runs a side and once taught a03
+    a wire field name the target does not use. a02 still runs; its DomainModel
+    stays an artifact of the run. `ECVT_A03_DOMAIN_MODEL=on` restores M2-T2 for
+    a larger measurement, which is the condition ADR 0012 sets for revisiting.
     """
-    value = os.environ.get(A03_DOMAIN_MODEL_ENV, "on").strip().lower()
+    value = os.environ.get(A03_DOMAIN_MODEL_ENV, "off").strip().lower()
     if value not in ("on", "off"):
         raise ValueError(f"{A03_DOMAIN_MODEL_ENV} must be 'on' or 'off', not {value!r}")
     return value == "on"

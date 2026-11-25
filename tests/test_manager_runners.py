@@ -54,7 +54,9 @@ def test_invalid_model_output_is_retryable(monkeypatch):
     assert exc.value.retryable is True
 
 
-def test_scenario_gen_receives_the_domain_model(monkeypatch, tmp_path):
+def test_scenario_gen_withholds_the_domain_model_unless_asked(monkeypatch, tmp_path):
+    """ADR 0012, option B: a02 still runs and its output is upstream, but a03 is
+    not handed it unless ECVT_A03_DOMAIN_MODEL=on — M2-T2 kept for measurement."""
     dm = {"rules": [{"id": "r1"}], "gaps": [], "workflows": []}
     ref = tmp_path / "domain_intel.json"
     ref.write_text(json.dumps(dm), encoding="utf-8")
@@ -65,10 +67,16 @@ def test_scenario_gen_receives_the_domain_model(monkeypatch, tmp_path):
         raise StructuredCallError("stop here", [], Usage(model="m"))
 
     monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", fake)
+    stage = _input("scenario_gen", {"target_system": WALLET}, {"domain_intel": str(ref)})
+
+    monkeypatch.delenv(runners.A03_DOMAIN_MODEL_ENV, raising=False)
     with pytest.raises(StageError):
-        runners.run_scenario_gen(
-            _input("scenario_gen", {"target_system": WALLET}, {"domain_intel": str(ref)})
-        )
+        runners.run_scenario_gen(stage)
+    assert seen["domain_model"] is None
+
+    monkeypatch.setenv(runners.A03_DOMAIN_MODEL_ENV, "on")
+    with pytest.raises(StageError):
+        runners.run_scenario_gen(stage)
     assert seen["domain_model"] == dm
 
 
@@ -288,9 +296,10 @@ def test_run_json_carries_per_model_usage(tmp_path):
 # --- ADR 0012: the DomainModel can be withheld from a03 --------------------
 
 
-def test_a03_gets_the_domain_model_by_default(monkeypatch):
+def test_a03_does_not_get_the_domain_model_by_default(monkeypatch):
+    """ADR 0012, option B: no measured benefit, one measured harm."""
     monkeypatch.delenv(runners.A03_DOMAIN_MODEL_ENV, raising=False)
-    assert runners.a03_gets_domain_model() is True
+    assert runners.a03_gets_domain_model() is False
 
 
 def test_domain_model_can_be_withheld_from_a03(monkeypatch, tmp_path):
