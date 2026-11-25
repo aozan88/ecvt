@@ -19,6 +19,7 @@ dependencies = [
   "claude-agent-sdk==0.2.187",  # subagent tool is "Agent" (older SDKs: "Task")
   "jsonschema",
   "httpx",
+  "mcp>=2.3,<3",  # ecvt-eval server and a06's client (M3-T3); 2.x API: MCPServer, Client
   "pydantic>=2",
   "python-dotenv",
   "pyyaml",

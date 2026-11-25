@@ -74,3 +74,21 @@ def _keep_generated_docs_out_of_the_repo(tmp_path_factory, monkeypatch):
     monkeypatch.setattr("ecvt.reporting.TREND_DOC", scratch / "catch-rate.md")
     monkeypatch.setattr("ecvt.reporting.LATEST_DOC", scratch / "latest-run.md")
     monkeypatch.setattr("ecvt.cli.TREND_DOC", scratch / "catch-rate.md")
+
+
+@pytest.fixture(autouse=True)
+def _eval_server_in_memory(monkeypatch):
+    """Score through ecvt-eval in-process for every test (M3-T3).
+
+    a06 always scores over MCP; production starts the server as a stdio
+    subprocess. Here `mcp.Client` gets the same server object in memory, so
+    every test still crosses the MCP protocol — tool schema, JSON round trip,
+    structured result — without ~30 subprocess starts. The stdio path has its
+    own test in tests/test_eval_server.py, which restores the original.
+    """
+    from agents.a06_evaluation import agent as a06
+    from ecvt.eval_server import build_server
+
+    server = build_server()
+    monkeypatch.setattr(a06, "_stdio_eval_server", a06.eval_server, raising=False)
+    monkeypatch.setattr(a06, "eval_server", lambda: server)

@@ -71,5 +71,7 @@ answer measures nothing.
 - **Reading ground truth while scoring.** It turns the measurement into a
   tautology.
 
-<!-- TODO (M2/M3): similarity and semantic dimensions (Mapping v3); scoring
-     moves behind the ecvt-eval MCP server in M3-T3. -->
+Rules run in the `ecvt-eval` MCP server (`score_response`, M3-T3, ADR 0014);
+the judge runs here.
+
+<!-- TODO: similarity and semantic dimensions (Mapping v3). -->

@@ -26,12 +26,12 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import sys
-from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,13 +45,9 @@ from ecvt.scoring import (
     Verdict,
     combine,
     needs_judge,
-    run_rules,
     summarize,
     write_scores_jsonl,
 )
-
-if TYPE_CHECKING:
-    from plugins._base.plugin import DomainRule
 
 AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "evaluation"
@@ -59,6 +55,80 @@ TOOL_NAME = "evaluation_judge_output"
 DEFAULT_JUDGE_PARALLEL = 6
 """Judgements in flight at once. Independent calls, so the only reasons to cap
 are socket pressure on a large suite and the per-minute rate limit."""
+
+REPO_ROOT = AGENT_DIR.parent.parent
+EVAL_TOOL = "score_response"
+
+
+class EvalServerError(RuntimeError):
+    """ecvt-eval could not score: it did not start, or refused an input."""
+
+
+def eval_server() -> Any:
+    """How a06 reaches ecvt-eval (M3-T3, ADR 0014): a stdio subprocess of this
+    interpreter, started in the repo root so it imports this checkout's code.
+    Anything `mcp.Client` accepts works — tests hand it the in-memory server."""
+    from mcp import StdioServerParameters
+
+    return StdioServerParameters(
+        command=sys.executable, args=["-m", "ecvt.eval_server"], cwd=str(REPO_ROOT)
+    )
+
+
+async def _rule_scores_async(
+    pairs: list[tuple[Scenario, ExecutionRecord]], plugin: str, server: Any
+) -> list[DimensionScore]:
+    from mcp import Client
+
+    scores: list[DimensionScore] = []
+    refusal: str | None = None
+    # A refusal is raised after the session closes: raised inside it, anyio's
+    # task group wraps it in an ExceptionGroup and the message is lost.
+    async with Client(server) as session:
+        for scenario, record in pairs:
+            result = await session.call_tool(
+                EVAL_TOOL,
+                {
+                    "scenario": scenario.model_dump(mode="json"),
+                    "execution": record.model_dump(mode="json"),
+                    "plugin": plugin,
+                },
+            )
+            if result.is_error or result.structured_content is None:
+                text = " ".join(getattr(c, "text", "") for c in result.content)
+                refusal = f"ecvt-eval refused {scenario.id}: {text or 'no result'}"
+                break
+            scores.append(DimensionScore.model_validate(result.structured_content))
+    if refusal is not None:
+        raise EvalServerError(refusal)
+    return scores
+
+
+def _run_sync(make_coro: Any) -> Any:
+    """Run a coroutine from sync code, also when the caller is inside an event
+    loop (an async test, an async host): then it gets its own loop in a thread."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(make_coro())
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(make_coro())).result()
+
+
+def rule_scores(
+    pairs: list[tuple[Scenario, ExecutionRecord]], plugin: str = "rest_api", server: Any = None
+) -> list[DimensionScore]:
+    """The rule dimension of every pair, from ecvt-eval — one session per call."""
+    if not pairs:
+        return []
+    target = eval_server() if server is None else server
+    try:
+        return _run_sync(lambda: _rule_scores_async(pairs, plugin, target))
+    except EvalServerError:
+        raise
+    except Exception as exc:  # the server did not start or the session broke
+        raise EvalServerError(f"ecvt-eval unavailable: {type(exc).__name__}: {exc}") from exc
+
 
 BODY_CHARS = 600
 """Response bodies are trimmed before they reach the prompt: a judgement needs
@@ -241,11 +311,13 @@ def score_scenarios(
     model: str = DEFAULT_SUBAGENT_MODEL,
     use_judge: bool = True,
     max_parallel: int = DEFAULT_JUDGE_PARALLEL,
-    domain_rules: Sequence[DomainRule] = (),
+    plugin: str = "rest_api",
+    server: Any = None,
 ) -> tuple[list[ScenarioScore], Usage]:
     """Score every scenario that has an execution record.
 
-    Rules run first and in sequence — they are free. The judgements that
+    Rules run first, through the ecvt-eval MCP server (M3-T3): the generic
+    checks plus `plugin`'s domain rules, deterministic and free. The judgements that
     survive `needs_judge` then run `max_parallel` at a time: each is an
     independent call about one scenario, so scenario 7's verdict never waits
     on scenario 6's. Sequential judging dominated the wall clock (14 scenarios
@@ -254,13 +326,11 @@ def score_scenarios(
     per-minute rate limit (ADR 0009).
     """
     by_id = {r.scenario_id: r for r in records}
-    pairs: list[tuple[Scenario, ExecutionRecord, DimensionScore]] = []
-
-    for scenario in scenarios:
-        record = by_id.get(scenario.id)
-        if record is None:
-            continue
-        pairs.append((scenario, record, run_rules(scenario, record, domain_rules)))
+    matched = [(s, by_id[s.id]) for s in scenarios if s.id in by_id]
+    ruled = rule_scores(matched, plugin, server)
+    pairs: list[tuple[Scenario, ExecutionRecord, DimensionScore]] = [
+        (s, r, rule) for (s, r), rule in zip(matched, ruled, strict=True)
+    ]
 
     to_judge = [
         index
@@ -335,19 +405,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         scenarios = read_scenarios_jsonl(args.scenarios)
         records = read_executions_jsonl(args.executions)
-        rules = load_plugin(args.plugin, PluginContext(base_url="")).domain_rules()
+        load_plugin(args.plugin, PluginContext(base_url=""))  # fail before any work
     except (OSError, ValueError) as exc:
         print(f"Could not read inputs: {exc}", file=sys.stderr)
         return 1
 
-    scores, usage = score_scenarios(
-        scenarios,
-        records,
-        model=args.model,
-        use_judge=not args.no_judge,
-        max_parallel=args.max_parallel,
-        domain_rules=rules,
-    )
+    try:
+        scores, usage = score_scenarios(
+            scenarios,
+            records,
+            model=args.model,
+            use_judge=not args.no_judge,
+            max_parallel=args.max_parallel,
+            plugin=args.plugin,
+        )
+    except EvalServerError as exc:
+        print(f"Scoring failed: {exc}", file=sys.stderr)
+        return 1
     if not scores:
         print("No scenario had a matching execution record.", file=sys.stderr)
         return 1

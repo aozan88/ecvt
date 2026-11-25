@@ -217,8 +217,13 @@ def run_evaluation(stage_input: dict[str, Any]) -> dict[str, Any]:
     data = _load(ref)
     scenarios = [Scenario.model_validate(s) for s in data.get("scenarios", [])]
     records = [ExecutionRecord.model_validate(r) for r in data.get("records", [])]
-    rules = _plugin(stage_input).domain_rules()
-    scores, usage = score_scenarios(scenarios, records, model=_model(), domain_rules=rules)
+    from agents.a06_evaluation.agent import EvalServerError
+
+    plugin = _plugin(stage_input).name
+    try:
+        scores, usage = score_scenarios(scenarios, records, model=_model(), plugin=plugin)
+    except EvalServerError as exc:
+        raise StageError(str(exc), retryable=False) from exc
     if not scores:
         raise StageError("no scenario had a matching execution record", retryable=False)
     stats = summarize(scores)
