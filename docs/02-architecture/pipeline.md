@@ -1,6 +1,6 @@
 # Validation Pipeline
 
-> v1 · 2026-11-24 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
+> v1.1 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
 > are both live on `main`. Patterns and rationale:
 > [`architecture.md`](architecture.md) §3.
 
@@ -38,8 +38,11 @@ succeeded.
 |---|---|---|---|
 | domain_intel (a02) | OpenAPI spec | DomainModel | `domain_intel.json` |
 | scenario_gen (a03) | spec; a02's DomainModel only with `ECVT_A03_DOMAIN_MODEL=on` (ADR 0012) | ScenarioSet, 7 categories | `scenarios.jsonl` |
-| execution (a05) | ScenarioSet + target via plugin | one execution record per scenario | `executions.jsonl` |
-| evaluation (a06) | execution records + ground truth | one score per scenario, catch rate | `scores.jsonl` |
+| execution (a05) | ScenarioSet; `plugin` slot (default `rest_api`) → `plugin.execute` | one execution record per scenario | `executions.jsonl` |
+| evaluation (a06) | execution records + the plugin's `domain_rules` (none for `rest_api`) | one score per scenario | `scores.jsonl` |
+
+The catch rate (X/10) is computed afterwards by reporting from `scores.jsonl`
+and `ground_truth.yaml`; no stage reads ground truth (ADR 0007).
 
 M2 runner contract (every stage):
 
@@ -64,5 +67,6 @@ upstream **paths**, and the Manager receives only `artifact_ref` plus a
 | Structured call | A validator rejection is fed back as the `tool_result` of the rejected `tool_use`, so the model corrects its own object instead of regenerating. Budget per stage: a02 3 (DomainModel validates in two layers Pydantic reports in sequence), a03 4 (`repeat`/`concurrency` are required per scenario) | `structured_call` |
 | Stage tool call | A stage is a whole subagent run, so the CLI's 60s MCP default is raised; a call cancelled anyway is recorded `failed` and retryable, never left `running` | `STAGE_TOOL_TIMEOUT_MS` |
 | Stage | `StageError(retryable=True)` (rate limit, timeout, schema-invalid tool output) → one retry; anything else stops the plan. The failure carries the last validator error, not just the attempt count | `MAX_ATTEMPTS = 2` |
+| Plugin | Unknown, or registered without an implementation → the CLI exits before any model call; inside a stage it is `StageError(retryable=False)`. Never a fallback to another plugin. A domain rule that raises is recorded `inconclusive` | `plugins/_base/plugin.py` |
 | Precondition | Not in plan, upstream failed, attempts exhausted → `blocked` | `precondition()` |
 | Manager | At most 24 turns; if no `manager_output` arrives, `finalize_guard` closes the run as failed; a "completed" claim that contradicts state is rejected | `MAX_MANAGER_TURNS = 24` |
