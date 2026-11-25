@@ -36,7 +36,8 @@ scoring fails (`EvalServerError`); there is no in-process fallback.
 
 Generic, true of any HTTP API (`ecvt/scoring.py`): execution outcome · status
 in `expected_status` · no 5xx · repeats rejected or not (inconclusive when all
-accepted) · probes readable.
+accepted) · probes readable (a 5xx or no answer fails; a 4xx is inconclusive,
+since a probe may be checking that something is gone).
 
 Domain rules come from the plugin (`Plugin.domain_rules()`), run on completed
 executions beside the generic checks and fold the same way. A rule that raises
