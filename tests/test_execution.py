@@ -259,11 +259,18 @@ async def test_transport_error_is_retried_then_recorded(config):
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport, base_url=BASE) as c:
-        record = await run_scenario(scenario(setup=[], action={
-            "name": "ping",
-            "method": "GET",
-            "path": "/accounts/1/balance",
-        }), c, config)
+        record = await run_scenario(
+            scenario(
+                setup=[],
+                action={
+                    "name": "ping",
+                    "method": "GET",
+                    "path": "/accounts/1/balance",
+                },
+            ),
+            c,
+            config,
+        )
 
     assert attempts["n"] == config.max_transport_retries + 1
     action = record.actions[0]
@@ -278,7 +285,9 @@ async def test_timeout_classified(config):
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=BASE) as c:
         record = await run_scenario(
-            scenario(setup=[], action={"name": "slow", "method": "GET", "path": "/accounts/1/balance"}),
+            scenario(
+                setup=[], action={"name": "slow", "method": "GET", "path": "/accounts/1/balance"}
+            ),
             c,
             config,
         )
@@ -291,7 +300,9 @@ async def test_non_json_response_kept_as_text(config):
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=BASE) as c:
         record = await run_scenario(
-            scenario(setup=[], action={"name": "html", "method": "GET", "path": "/accounts/1/balance"}),
+            scenario(
+                setup=[], action={"name": "html", "method": "GET", "path": "/accounts/1/balance"}
+            ),
             c,
             config,
         )
@@ -433,3 +444,94 @@ def test_execution_record_helpers():
     )
     assert record.action_statuses == []
     assert record.all_steps == []
+
+
+# --- M3-T1: execution goes through a plugin, loaded by name -----------------
+
+
+def _ctx():
+    from plugins._base.plugin import PluginContext
+
+    return PluginContext(base_url="http://test")
+
+
+def test_registry_is_the_plugins_directory():
+    from agents.a01_manager.agent import list_plugins
+    from plugins._base.plugin import available
+
+    names = available()
+    assert "rest_api" in names and "_base" not in names
+    assert list_plugins() == names  # the Manager reads the same registry
+
+
+def test_rest_api_plugin_loads_by_name():
+    from plugins._base.plugin import Plugin, load
+
+    plugin = load("rest_api", _ctx())
+    assert isinstance(plugin, Plugin) and plugin.name == "rest_api"
+
+
+def test_unknown_plugin_fails_and_names_the_registry():
+    from plugins._base.plugin import PluginError, load
+
+    with pytest.raises(PluginError, match="registered: .*rest_api"):
+        load("nope", _ctx())
+
+
+def test_stub_plugin_fails_instead_of_falling_back():
+    """ikys is a directory without an implementation: never silently run REST."""
+    from plugins._base.plugin import PluginError, load
+
+    with pytest.raises(PluginError, match="no implementation"):
+        load("ikys", _ctx())
+
+
+def test_plugin_without_execute_cannot_be_built():
+    from plugins._base.plugin import Plugin
+
+    class Half(Plugin):
+        name, version = "half", "0"
+
+    with pytest.raises(TypeError):
+        Half(_ctx())
+
+
+@pytest.mark.asyncio
+async def test_optional_hooks_default_to_nothing():
+    from plugins._base.plugin import load
+
+    plugin = load("rest_api", _ctx())
+    assert await plugin.discover_domain() is None
+    assert plugin.validate_response(scenario(), None) == []
+
+
+@pytest.mark.asyncio
+async def test_rest_api_plugin_matches_the_runner(monkeypatch):
+    """The plugin is a wrapper: same records as calling run_scenarios directly."""
+    from plugins._base.plugin import PluginContext, load
+
+    seen = {}
+
+    async def fake(scenarios, config, client=None):
+        seen["config"] = config
+        return ["r"] * len(scenarios)
+
+    monkeypatch.setattr("ecvt.execution.run_scenarios", fake)
+    plugin = load("rest_api", PluginContext(base_url="http://x", timeout_s=3.0, max_parallel=4))
+    assert await plugin.execute([scenario(), scenario()]) == ["r", "r"]
+    cfg = seen["config"]
+    assert (cfg.base_url, cfg.timeout_s, cfg.max_parallel) == ("http://x", 3.0, 4)
+
+
+def test_cli_rejects_a_stub_plugin_before_generation(monkeypatch, tmp_path, capsys):
+    from ecvt import cli
+
+    def never(**_):
+        raise AssertionError("a03 must not be called")
+
+    monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", never)
+    code = cli.main(
+        ["run", "--target", "examples/wallet-api", "--plugin", "ikys", "--out-dir", str(tmp_path)]
+    )
+    assert code != 0
+    assert "no implementation" in capsys.readouterr().err

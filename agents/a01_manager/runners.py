@@ -139,21 +139,29 @@ def _scenarios_from(ref: str) -> list[Any]:
 
 # --------------------------------------------------------------------------- a05
 def run_execution(stage_input: dict[str, Any]) -> dict[str, Any]:
-    from ecvt.execution import RunnerConfig, run_scenarios
+    from plugins._base.plugin import PluginContext, PluginError
+    from plugins._base.plugin import load as load_plugin
 
     StageError = _error_cls()
-    ref = stage_input["upstream"].get("scenario_gen") or stage_input["slots"].get("scenario_set_ref")
+    ref = stage_input["upstream"].get("scenario_gen") or stage_input["slots"].get(
+        "scenario_set_ref"
+    )
     if not ref:
         raise StageError("no scenario set: neither upstream nor scenario_set_ref", retryable=False)
     scenarios = _scenarios_from(ref)
     if not scenarios:
         raise StageError(f"scenario set {ref} is empty", retryable=False)
+    name = stage_input["slots"].get("plugin") or "rest_api"
+    try:
+        plugin = load_plugin(name, PluginContext(base_url=_base_url()))
+    except PluginError as exc:
+        raise StageError(str(exc), retryable=False) from exc
     from ecvt.evals import target_reachable
 
     if not target_reachable(_base_url()):
         # Nothing answered: a transport fault, not a finding (ADR 0006). Worth one retry.
         raise StageError(f"target unreachable at {_base_url()}", retryable=True)
-    records = asyncio.run(run_scenarios(scenarios, RunnerConfig(base_url=_base_url())))
+    records = asyncio.run(plugin.execute(scenarios))
     outcomes: dict[str, int] = {}
     for r in records:
         outcomes[r.outcome.value] = outcomes.get(r.outcome.value, 0) + 1
@@ -162,7 +170,8 @@ def run_execution(stage_input: dict[str, Any]) -> dict[str, Any]:
             "scenarios": [s.model_dump(mode="json", exclude_none=True) for s in scenarios],
             "records": [r.model_dump(mode="json", exclude_none=True) for r in records],
         },
-        "summary": f"{len(records)} executed; " + ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items())),
+        "summary": f"{len(records)} executed; "
+        + ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items())),
         "metrics": {"executed": len(records), **outcomes},
         "usage": {},
     }
@@ -178,7 +187,9 @@ def run_evaluation(stage_input: dict[str, Any]) -> dict[str, Any]:
     StageError = _error_cls()
     ref = stage_input["upstream"].get("execution") or stage_input["slots"].get("execution_ref")
     if not ref:
-        raise StageError("no execution results: neither upstream nor execution_ref", retryable=False)
+        raise StageError(
+            "no execution results: neither upstream nor execution_ref", retryable=False
+        )
     data = _load(ref)
     scenarios = [Scenario.model_validate(s) for s in data.get("scenarios", [])]
     records = [ExecutionRecord.model_validate(r) for r in data.get("records", [])]
