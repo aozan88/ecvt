@@ -8,6 +8,28 @@ Fixes to the gate itself, found by running G2, and M3's first P0 work. They land
 after `v0.5.0` and are not part of it: the tag records what was released, so it
 stays where it is.
 
+### Added
+- **Plugin layer (M3-T1, #37).** `plugins/_base/plugin.py`: `Plugin` ABC
+  (`execute(scenarios)` required, `discover_domain()` optional), registry =
+  directories under `plugins/`, `load(name)` failing on an unknown or
+  unimplemented plugin. `rest_api` wraps the M1 runner unchanged. `--plugin`
+  was accepted and ignored before; it now selects execution on the chain and in
+  the Manager, resolved before any model call. ADR 0013: `execute` stays at set
+  granularity for v1.0, `send(step)` waits for a second backend,
+  `validate_response` removed.
+- **Wallet domain plugin (M3-T2).** `Plugin.domain_rules()` hands a06 rules it
+  runs beside its own checks; the plugin knows the rule, a06 decides the
+  verdict. `plugins/wallet` executes as `rest_api` and adds 7 rules: no
+  negative balance, amount > 0, no self-transfer, amounts and balances in whole
+  cents, a replayed transfer moves money once, balances reconcile. Each passes
+  on a correct wallet, including an idempotent one; none reads ground truth.
+  `ecvt run --plugin wallet`, the Manager's evaluation stage and
+  `python -m agents.a06_evaluation.agent --plugin` apply them; `n_run` gains
+  `--plugin`.
+- Architecture docs follow the plugin layer: `architecture.md`, `pipeline.md`,
+  agent specs for a05 and a06 (were stubs), `docs/07-plugins/`. `pipeline.md`
+  listed ground truth as an input of evaluation; it is not (ADR 0007).
+
 ### Changed
 - **a03 no longer receives a02's DomainModel** (ADR 0012, option B). Handed
   to a03 it showed no catch-rate benefit and once taught it a wire field name
@@ -69,6 +91,14 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
+- **M3-T2, wallet rules, M1 chain.** Paired — the five M3-T1 runs re-scored
+  with the same executions and judge verdicts, only the wallet rules added:
+  7 · 6 · 7 · 6 · 8 → 7 · 7 · 8 · 8 · 8 (median 7 → 8), unattributed failures
+  unchanged at 1 per run. Live, five new `--plugin wallet` runs: 8 · 7 · 6 · 7
+  · 8 (min 6 / median 7 / max 8), level with `rest_api`'s 6 / 7 / 8 — between
+  fresh runs the scenario sets differ, which the paired comparison removes.
+  Two of 12 live attempts across M3-T1/T2 failed in a03 before execution
+  ("no valid output in 4 attempts").
 
 #### The DomainModel handed to a03, or withheld (ADR 0012)
 Six Manager runs per arm, wallet-api; `ECVT_A03_DOMAIN_MODEL` withholds a02's

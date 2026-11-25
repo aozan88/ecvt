@@ -15,9 +15,12 @@ What a plugin must do is execute. What it may add is knowledge:
 
     execute(scenarios)   required  scenarios -> ExecutionRecords
     discover_domain()    optional  a DomainModel the plugin knows (default None)
+    domain_rules()       optional  DomainRules a06 runs beside its own (default [])
 
-A plugin does not score: scoring belongs to a06 (ADR 0013). Execution stays at
-set granularity for v1.0; `send(step)` arrives with a second real backend.
+A plugin does not score: scoring belongs to a06 (ADR 0013). A DomainRule judges
+one observable property of one execution; a06 decides what that means for the
+scenario — how verdicts fold, whether the judge runs. Execution stays at set
+granularity for v1.0; `send(step)` arrives with a second real backend.
 """
 
 from __future__ import annotations
@@ -29,8 +32,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ecvt.results import ExecutionRecord
     from ecvt.schema import Scenario
+    from ecvt.scoring import RuleCheck
 
 PLUGINS_DIR = Path(__file__).resolve().parent.parent
 
@@ -52,6 +58,21 @@ class PluginContext:
     timeout_s: float = 10.0
     max_parallel: int = 20
     options: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DomainRule:
+    """One rule of a domain, checked against one execution.
+
+    `check` returns a RuleCheck (pass / fail / inconclusive) when the rule
+    applies to what was observed, and None when it does not — most rules say
+    nothing about most scenarios. It reads only the scenario and its record:
+    never ground truth (ADR 0007), never the network.
+    """
+
+    id: str
+    description: str
+    check: Callable[[Scenario, ExecutionRecord], RuleCheck | None]
 
 
 class Plugin(ABC):
@@ -76,6 +97,10 @@ class Plugin(ABC):
     async def discover_domain(self) -> dict[str, Any] | None:
         """A DomainModel this plugin knows without reading a spec, or None."""
         return None
+
+    def domain_rules(self) -> list[DomainRule]:
+        """Rules of this domain for a06 to run. A generic plugin knows none."""
+        return []
 
 
 def available(plugins_dir: Path = PLUGINS_DIR) -> list[str]:

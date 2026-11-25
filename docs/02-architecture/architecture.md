@@ -1,9 +1,10 @@
 # Architecture
 
-> v1 · 2026-11-24 · Max 10 pages. The M1 chain (Scenario → Execution →
+> v1.1 · 2026-11-25 · Max 10 pages. The M1 chain (Scenario → Execution →
 > Evaluation) and the M2 additions — Manager (a01) and Domain Intelligence
-> (a02) — are all live on `main` (PRs #25, #26). Stage contracts, context
-> passing and error handling: [`pipeline.md`](pipeline.md).
+> (a02) — are all live on `main` (PRs #25, #26); M3 adds the plugin layer
+> (M3-T1 #37, M3-T2 wallet rules). Stage contracts, context passing and error
+> handling: [`pipeline.md`](pipeline.md).
 
 ## 1. System context
 
@@ -14,7 +15,9 @@ flowchart LR
     DI --> SG[Scenario Generator a03]
     SG --> EX[Execution a05]
     EX --> EV[Evaluation a06]
-    EX <-->|HTTP via plugin| T[(Target system<br/>e.g. wallet-api)]
+    EX -->|plugin.execute| P[Plugin<br/>rest_api · wallet]
+    P <-->|HTTP| T[(Target system<br/>e.g. wallet-api)]
+    P -.->|domain_rules| EV
     M <-->|state.json, artifacts| R[(runs/run_id/)]
     EV -->|scores, catch rate| U
 ```
@@ -27,13 +30,13 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 
 | Component | Job | Model call | Code |
 |---|---|---|---|
-| CLI | Entry point. Today runs the fixed M1 chain; in M2 hands the request to the Manager | none | `ecvt/cli.py` |
+| CLI | Entry point. `ecvt run` runs the fixed chain; `--manager` hands the request to the Manager. `--plugin <name>` (default `rest_api`) is resolved on both paths before any model call | none | `ecvt/cli.py` |
 | Manager (a01) | Classify intent, extract slots, decide retry/stop, write the summary | Agent SDK `query()`, Sonnet | `agents/a01_manager/` |
 | Domain Intelligence (a02) | OpenAPI spec → DomainModel (entities, workflows, rules, gaps) | Messages API, forced tool use, Haiku | `agents/a02_domain_intelligence/` |
 | Scenario Generator (a03) | Spec → ScenarioSet across 7 categories (the DomainModel is not passed in; ADR 0012) | Messages API, forced tool use, Haiku | `agents/a03_scenario_generator/` |
-| Execution (a05) | Fire each scenario at the target, record what happened | **none** | `ecvt/execution.py` |
-| Evaluation (a06) | Rule checks, then LLM-as-judge on what rules cannot decide | Messages API, Haiku | `agents/a06_evaluation/`, `ecvt/scoring.py` |
-| Plugins | Target-specific adapters and rules | none | `plugins/` |
+| Execution (a05) | Fire each scenario at the target through the run's plugin, record what happened | **none** | `plugins/<name>/` → `ecvt/execution.py` |
+| Evaluation (a06) | Generic rule checks plus the plugin's domain rules, then LLM-as-judge on what rules cannot decide | Messages API, Haiku | `agents/a06_evaluation/`, `ecvt/scoring.py` |
+| Plugins | How a kind of target is reached (`execute`) and, optionally, its domain rules (`domain_rules`). Never scores. Registry = directories under `plugins/` | none | `plugins/` (ADRs 0003, 0010, 0013) |
 | Eval harness + gates | Agent eval datasets, milestone gates | judge calls only | `scripts/eval_runner.py`, `scripts/gate_check.py` |
 
 Model choice: ADR 0005. Why subagents use the Messages API and only the
@@ -58,6 +61,7 @@ The course vocabulary (Anthropic, "Agents and workflows") mapped onto ECVT.
 | **Structured output** | Pydantic wire models, `extra="forbid"`, no defaults; forced `tool_choice` | A field optional in the schema gets skipped even if the prompt asks for it (a03 lesson) — required means required in the schema |
 | **Model routing** | Manager Sonnet; subagents and AgentDefinition adapters Haiku | Hard decisions on the strong model, volume on the cheap one (ADR 0005) |
 | **Prompt caching** | Long, repeated system blocks (e.g. SKILL.md) carry `cache_control` | Cuts repeated cost; below the model's minimum length the cache silently does not apply |
+| **Plugin seam** | Core reaches a target only through `Plugin.execute(scenarios)`; a domain plugin adds `domain_rules` that a06 runs beside its own checks | Domain-agnostic Core (rule 5). The plugin knows the rule, a06 decides the verdict; `send(step)` waits for a second backend (ADR 0013) |
 | **Concurrency as a test probe** | Execution fires one request N times at once (`scenario.concurrency`) | Not an LLM pattern: it stresses the target to expose race conditions |
 
 ## 4. Who decides what

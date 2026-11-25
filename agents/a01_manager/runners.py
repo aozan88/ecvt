@@ -156,11 +156,20 @@ def _scenarios_from(ref: str) -> list[Any]:
     return [Scenario.model_validate(s) for s in raw]
 
 
-# --------------------------------------------------------------------------- a05
-def run_execution(stage_input: dict[str, Any]) -> dict[str, Any]:
+def _plugin(stage_input: dict[str, Any]) -> Any:
+    """The run's plugin, from the intent's `plugin` slot. Unusable is final."""
     from plugins._base.plugin import PluginContext, PluginError
     from plugins._base.plugin import load as load_plugin
 
+    name = stage_input["slots"].get("plugin") or "rest_api"
+    try:
+        return load_plugin(name, PluginContext(base_url=_base_url()))
+    except PluginError as exc:
+        raise _error_cls()(str(exc), retryable=False) from exc
+
+
+# --------------------------------------------------------------------------- a05
+def run_execution(stage_input: dict[str, Any]) -> dict[str, Any]:
     StageError = _error_cls()
     ref = stage_input["upstream"].get("scenario_gen") or stage_input["slots"].get(
         "scenario_set_ref"
@@ -170,11 +179,7 @@ def run_execution(stage_input: dict[str, Any]) -> dict[str, Any]:
     scenarios = _scenarios_from(ref)
     if not scenarios:
         raise StageError(f"scenario set {ref} is empty", retryable=False)
-    name = stage_input["slots"].get("plugin") or "rest_api"
-    try:
-        plugin = load_plugin(name, PluginContext(base_url=_base_url()))
-    except PluginError as exc:
-        raise StageError(str(exc), retryable=False) from exc
+    plugin = _plugin(stage_input)
     from ecvt.evals import target_reachable
 
     if not target_reachable(_base_url()):
@@ -212,7 +217,8 @@ def run_evaluation(stage_input: dict[str, Any]) -> dict[str, Any]:
     data = _load(ref)
     scenarios = [Scenario.model_validate(s) for s in data.get("scenarios", [])]
     records = [ExecutionRecord.model_validate(r) for r in data.get("records", [])]
-    scores, usage = score_scenarios(scenarios, records, model=_model())
+    rules = _plugin(stage_input).domain_rules()
+    scores, usage = score_scenarios(scenarios, records, model=_model(), domain_rules=rules)
     if not scores:
         raise StageError("no scenario had a matching execution record", retryable=False)
     stats = summarize(scores)

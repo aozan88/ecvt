@@ -335,9 +335,7 @@ def test_summary_prefers_the_concrete_failed_check():
                 }
             ],
         ),
-        DimensionScore(
-            dimension=Dimension.JUDGE, verdict=Verdict.FAIL, rationale="vaguer wording"
-        ),
+        DimensionScore(dimension=Dimension.JUDGE, verdict=Verdict.FAIL, rationale="vaguer wording"),
     ]
     score = combine(scenario, blank_record(), dimensions)
     assert "returned [200]" in score.summary
@@ -377,3 +375,200 @@ def test_summarize_counts():
     assert out["verdicts"]["fail"] == 2
     assert out["defects_suspected"] == 2
     assert out["judged"] == 1
+
+
+# --- M3-T2: wallet domain rules, run by a06 beside its own ------------------
+
+from ecvt.results import StepResult
+from plugins.wallet import rules as wallet
+
+
+def _step(name, endpoint, status, body=None, reply=None):
+    return StepResult(
+        name=name, endpoint=endpoint, status_code=status, request_body=body, response_json=reply
+    )
+
+
+def _account(acc_id, balance):
+    return _step(
+        f"create_{acc_id}",
+        "POST /accounts",
+        200,
+        {"owner": acc_id, "initial_balance": balance},
+        {"id": acc_id, "balance": balance},
+    )
+
+
+def _xfer(src, dst, amount, status=200, after=None):
+    reply = (
+        {"status": "ok"} if after is None else {"from_balance": after[0], "to_balance": after[1]}
+    )
+    return _step(
+        "xfer",
+        "POST /transfers",
+        status,
+        {"from_account": src, "to_account": dst, "amount": amount},
+        reply if status < 300 else {"detail": "refused"},
+    )
+
+
+def _probe(acc_id, balance):
+    return _step(
+        f"read_{acc_id}",
+        "GET /accounts/{x}/balance",
+        200,
+        None,
+        {"account": acc_id, "balance": balance},
+    )
+
+
+def _wallet_case(actions, probes, setup=None, repeat=1, concurrency=1, amount=10.0):
+    from tests.test_schema import make_scenario
+
+    data = make_scenario(repeat=repeat, concurrency=concurrency)
+    data["action"]["body"] = {"from_account": "{src_id}", "to_account": "{dst}", "amount": amount}
+    data["expectation"]["expected_status"] = [200, 400, 422]  # isolate the wallet rules
+    scenario = Scenario.model_validate(data)
+    record = ExecutionRecord(
+        scenario_id=scenario.id,
+        category="edge",
+        base_url="http://x",
+        outcome=RunOutcome.COMPLETED,
+        setup=setup if setup is not None else [_account("1", 100.0), _account("2", 0.0)],
+        actions=actions,
+        probes=probes,
+    )
+    return scenario, record
+
+
+def _verdicts(scenario, record):
+    return {
+        c.name: c.verdict
+        for c in run_rules(scenario, record, wallet.WALLET_RULES).checks
+        if c.name.startswith("wallet.")
+    }
+
+
+def test_correct_transfer_passes_every_wallet_rule():
+    s, r = _wallet_case(
+        [_xfer("1", "2", 10.0, after=(90.0, 10.0))], [_probe("1", 90.0), _probe("2", 10.0)]
+    )
+    v = _verdicts(s, r)
+    assert v and set(v.values()) == {Verdict.PASS}
+    assert run_rules(s, r, wallet.WALLET_RULES).verdict is Verdict.PASS
+
+
+def test_idempotent_wallet_passes_replay_and_reconcile():
+    """A correct wallet may answer a replay 2xx with the original result."""
+    same = (90.0, 10.0)
+    s, r = _wallet_case(
+        [_xfer("1", "2", 10.0, after=same)] * 3, [_probe("1", 90.0), _probe("2", 10.0)], repeat=3
+    )
+    v = _verdicts(s, r)
+    assert v["wallet.replay_applied_once"] is Verdict.PASS
+    assert v["wallet.balances_reconcile"] is Verdict.PASS
+
+
+def test_replay_applied_twice_fails():
+    s, r = _wallet_case(
+        [_xfer("1", "2", 10.0, after=(90.0, 10.0)), _xfer("1", "2", 10.0, after=(80.0, 20.0))],
+        [_probe("1", 80.0), _probe("2", 20.0)],
+        repeat=2,
+    )
+    assert _verdicts(s, r)["wallet.replay_applied_once"] is Verdict.FAIL
+
+
+def test_concurrency_alone_is_not_a_replay():
+    s, r = _wallet_case(
+        [_xfer("1", "2", 10.0, after=(90.0, 10.0)), _xfer("1", "2", 10.0, after=(80.0, 20.0))],
+        [_probe("1", 80.0), _probe("2", 20.0)],
+        concurrency=2,
+    )
+    v = _verdicts(s, r)
+    assert "wallet.replay_applied_once" not in v
+    assert v["wallet.balances_reconcile"] is Verdict.PASS  # two applied, both accepted
+
+
+def test_overdraft_fails_negative_balance():
+    s, r = _wallet_case(
+        [_xfer("1", "2", 150.0, after=(-50.0, 150.0))],
+        [_probe("1", -50.0), _probe("2", 150.0)],
+        amount=150.0,
+    )
+    assert _verdicts(s, r)["wallet.no_negative_balance"] is Verdict.FAIL
+
+
+@pytest.mark.parametrize("amount", [0.0, -5.0])
+def test_non_positive_amount_accepted_fails_refused_passes(amount):
+    s, r = _wallet_case([_xfer("1", "2", amount, after=(100.0 - amount, amount))], [])
+    assert _verdicts(s, r)["wallet.transfer_amount_positive"] is Verdict.FAIL
+    s, r = _wallet_case([_xfer("1", "2", amount, status=422)], [])
+    assert _verdicts(s, r)["wallet.transfer_amount_positive"] is Verdict.PASS
+
+
+def test_self_transfer_accepted_fails():
+    s, r = _wallet_case([_xfer("1", "1", 10.0, after=(100.0, 100.0))], [])
+    assert _verdicts(s, r)["wallet.no_self_transfer"] is Verdict.FAIL
+    s, r = _wallet_case([_xfer("1", "1", 10.0, status=400)], [])
+    assert _verdicts(s, r)["wallet.no_self_transfer"] is Verdict.PASS
+
+
+def test_sub_cent_amount_and_float_residue_fail():
+    s, r = _wallet_case([_xfer("1", "2", 0.333, after=(99.667, 0.333))], [])
+    v = _verdicts(s, r)
+    assert v["wallet.amount_in_minor_units"] is Verdict.FAIL
+    s, r = _wallet_case([_xfer("1", "2", 0.1, after=(0.30000000000000004, 0.1))], [])
+    assert _verdicts(s, r)["wallet.balance_in_minor_units"] is Verdict.FAIL
+
+
+def test_lost_money_and_unexplained_move_fail_reconcile():
+    created = _wallet_case(
+        [_xfer("1", "2", 10.0, after=(90.0, 20.0))], [_probe("1", 90.0), _probe("2", 20.0)]
+    )
+    assert _verdicts(*created)["wallet.balances_reconcile"] is Verdict.FAIL
+    # two accepted, source moved by one and a half transfers: a lost/partial update
+    partial = _wallet_case(
+        [_xfer("1", "2", 10.0)] * 2, [_probe("1", 85.0), _probe("2", 15.0)], concurrency=2
+    )
+    assert _verdicts(*partial)["wallet.balances_reconcile"] is Verdict.FAIL
+    # refused, yet money moved
+    refused = _wallet_case(
+        [_xfer("1", "2", 10.0, status=422)], [_probe("1", 90.0), _probe("2", 10.0)]
+    )
+    assert _verdicts(*refused)["wallet.balances_reconcile"] is Verdict.FAIL
+
+
+def test_a_rule_that_raises_is_inconclusive_not_a_crash():
+    from plugins._base.plugin import DomainRule
+
+    def broken(_s, _r):
+        raise RuntimeError("bug in the rule")
+
+    s, r = _wallet_case([_xfer("1", "2", 10.0, after=(90.0, 10.0))], [])
+    checks = run_rules(s, r, [DomainRule("x.broken", "", broken)]).checks
+    assert next(c for c in checks if c.name == "x.broken").verdict is Verdict.INCONCLUSIVE
+
+
+def test_rules_do_not_run_on_an_execution_that_never_ran():
+    s, r = _wallet_case([], [])
+    r = r.model_copy(update={"outcome": RunOutcome.SETUP_FAILED})
+    assert _verdicts(s, r) == {}
+
+
+def test_generic_plugin_has_no_domain_rules_wallet_has_seven():
+    from plugins._base.plugin import PluginContext, load
+
+    ctx = PluginContext(base_url="http://x")
+    assert load("rest_api", ctx).domain_rules() == []
+    rules = load("wallet", ctx).domain_rules()
+    assert 5 <= len(rules) <= 10 and len({r.id for r in rules}) == len(rules)
+
+
+def test_score_scenarios_applies_the_plugin_rules():
+    from agents.a06_evaluation.agent import score_scenarios
+
+    s, r = _wallet_case([_xfer("1", "1", 10.0, after=(100.0, 100.0))], [])
+    plain, _ = score_scenarios([s], [r], use_judge=False)
+    ruled, _ = score_scenarios([s], [r], use_judge=False, domain_rules=wallet.WALLET_RULES)
+    assert not any(c.name.startswith("wallet.") for d in plain[0].dimensions for c in d.checks)
+    assert ruled[0].defect_suspected and "itself" in ruled[0].summary

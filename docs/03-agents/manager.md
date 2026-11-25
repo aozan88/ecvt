@@ -106,6 +106,8 @@ subagents run in order. Status: not yet run against a live model.
 ## 8. Known limitations
 
 - `plugin` is a free string checked against `plugins/` at run time (ADR 0010).
-- Execution does not use the plugin yet; it calls `ECVT_BASE_URL` directly (plugin ABC is M3).
+- Execution and evaluation load the `plugin` slot (M3-T1, M3-T2): execution runs through
+  `plugin.execute`, evaluation adds the plugin's domain rules. An unusable plugin is a
+  non-retryable stage failure.
 - The adapter layer adds ~4 Haiku calls per run; dropping it would break ADR 0009.
 - No resume: a failed run is re-run from the start, not continued.

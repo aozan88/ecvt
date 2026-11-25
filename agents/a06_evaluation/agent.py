@@ -28,9 +28,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,6 +49,9 @@ from ecvt.scoring import (
     summarize,
     write_scores_jsonl,
 )
+
+if TYPE_CHECKING:
+    from plugins._base.plugin import DomainRule
 
 AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "evaluation"
@@ -237,6 +241,7 @@ def score_scenarios(
     model: str = DEFAULT_SUBAGENT_MODEL,
     use_judge: bool = True,
     max_parallel: int = DEFAULT_JUDGE_PARALLEL,
+    domain_rules: Sequence[DomainRule] = (),
 ) -> tuple[list[ScenarioScore], Usage]:
     """Score every scenario that has an execution record.
 
@@ -255,7 +260,7 @@ def score_scenarios(
         record = by_id.get(scenario.id)
         if record is None:
             continue
-        pairs.append((scenario, record, run_rules(scenario, record)))
+        pairs.append((scenario, record, run_rules(scenario, record, domain_rules)))
 
     to_judge = [
         index
@@ -312,6 +317,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Rules only — no model calls, no API key needed.",
     )
+    parser.add_argument(
+        "--plugin",
+        default="rest_api",
+        help="Plugin whose domain rules run beside the generic checks (M3-T2).",
+    )
     return parser.parse_args(argv)
 
 
@@ -319,9 +329,13 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     args = _parse_args(argv)
 
+    from plugins._base.plugin import PluginContext
+    from plugins._base.plugin import load as load_plugin
+
     try:
         scenarios = read_scenarios_jsonl(args.scenarios)
         records = read_executions_jsonl(args.executions)
+        rules = load_plugin(args.plugin, PluginContext(base_url="")).domain_rules()
     except (OSError, ValueError) as exc:
         print(f"Could not read inputs: {exc}", file=sys.stderr)
         return 1
@@ -332,6 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         use_judge=not args.no_judge,
         max_parallel=args.max_parallel,
+        domain_rules=rules,
     )
     if not scores:
         print("No scenario had a matching execution record.", file=sys.stderr)
@@ -340,9 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     out_path = write_scores_jsonl(args.out, scores)
     stats = summarize(scores)
 
-    print(f"{stats['scored']} scored · " + ", ".join(
-        f"{k}={v}" for k, v in sorted(stats["verdicts"].items())
-    ))
+    print(
+        f"{stats['scored']} scored · "
+        + ", ".join(f"{k}={v}" for k, v in sorted(stats["verdicts"].items()))
+    )
     print(f"defects suspected: {stats['defects_suspected']} · judged: {stats['judged']}")
     for score in scores:
         if score.verdict is not Verdict.PASS:
