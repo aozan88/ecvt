@@ -4,9 +4,17 @@ All notable changes to ECVT are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
-Fixes to the gate itself, found by running G2, and M3's first P0 work. They land
-after `v0.5.0` and are not part of it: the tag records what was released, so it
-stays where it is.
+
+## [1.0.0] - 2026-11-25
+M3 — plugins, the ecvt-eval MCP server, Dev + Business reports, the n8n
+trigger and the landing page. ECVT runs against any OpenAPI target through a
+plugin, scores through its own MCP server, and answers a webhook with a release
+recommendation.
+
+Gate G3 at release: see the release PR for the full run. The demo video is
+deferred (ADR 0015). Catch rate on the demo target, M1 chain with the wallet
+plugin: median 7/10 over five runs (range 6–8). First run against a real
+third-party API (Swagger Petstore v3) found four defects, each confirmed by hand.
 
 ### Added
 - **Plugin layer (M3-T1, #37).** `plugins/_base/plugin.py`: `Plugin` ABC
