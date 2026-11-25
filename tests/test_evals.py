@@ -693,3 +693,186 @@ def test_schema_failure_detail_names_the_rule(tmp_path):
     assert res.passed is False
     assert "Field required" in res.detail  # the rule, not only the schema name
     assert len(res.detail) <= DETAIL_CHARS
+
+
+# --- repeated runs (--runs N) ----------------------------------------------
+
+
+def _three_case_dataset(tmp_path):
+    path = tmp_path / "a01_manager" / "eval_dataset.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "id": cid,
+                    "input": {"request": "x"},
+                    "category": "happy-path",
+                    "scoring": "keyword-match",
+                    "expected_keywords": ["x"],
+                }
+            )
+            for cid in ("steady", "wobbly", "broken")
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _scripted_runs(monkeypatch, outcomes):
+    """run_dataset returns one scripted report per call: {case_id: passed}."""
+    from ecvt import evals
+
+    queue = list(outcomes)
+
+    def fake(path, **_kwargs):
+        verdicts = queue.pop(0)
+        report = EvalReport(agent="a01_manager", results=[], usage=Usage(model="m"))
+        for cid, outcome in verdicts.items():
+            if outcome == "skip":
+                report.skipped.append((cid, "unmeasurable: test"))
+            else:
+                report.results.append(
+                    evals.CaseResult(cid, "keyword-match", "happy-path", outcome, f"{cid} detail")
+                )
+        return report
+
+    monkeypatch.setattr("ecvt.evals.run_dataset", fake)
+
+
+def test_repeated_runs_tally_each_case_and_classify_it(tmp_path, monkeypatch):
+    """N/N stable pass, some-of-N flaky, 0/N stable fail — kept apart, because
+    a broken case and a noisy one need different fixes."""
+    from ecvt.evals import FLAKY, STABLE_FAIL, STABLE_PASS, run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    _scripted_runs(
+        monkeypatch,
+        [
+            {"steady": True, "wobbly": True, "broken": False},
+            {"steady": True, "wobbly": False, "broken": False},
+            {"steady": True, "wobbly": True, "broken": False},
+        ],
+    )
+    report = run_dataset_repeated(path, 3)
+
+    tallies = {t.case_id: (t.passed, t.measured, t.verdict) for t in report.tallies}
+    assert tallies == {
+        "steady": (3, 3, STABLE_PASS),
+        "wobbly": (2, 3, FLAKY),
+        "broken": (0, 3, STABLE_FAIL),
+    }
+    assert report.pooled == (5, 9)
+    assert [t.case_id for t in report.by_verdict(FLAKY)] == ["wobbly"]
+
+
+def test_pooled_rate_is_judged_against_the_bar(tmp_path, monkeypatch):
+    """One run at 70% and two at 90% pool to 83%: the gate reads the pool, not a
+    single draw that happened to land low."""
+    from ecvt.evals import run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    # 10 cases would be truer to life; 3 runs x 3 cases keeps the arithmetic visible.
+    _scripted_runs(
+        monkeypatch,
+        [
+            {"steady": True, "wobbly": True, "broken": True},
+            {"steady": True, "wobbly": False, "broken": True},
+            {"steady": True, "wobbly": True, "broken": True},
+        ],
+    )
+    report = run_dataset_repeated(path, 3)
+    assert report.pass_rate == pytest.approx(8 / 9)
+    assert report.meets_bar is True
+
+
+def test_a_skip_in_any_run_keeps_the_bar_unmet(tmp_path, monkeypatch):
+    """Same rule as one run: an unmeasured draw is not a pass, and pooling would
+    otherwise drop it quietly."""
+    from ecvt.evals import run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    all_pass = {"steady": True, "wobbly": True, "broken": True}
+    _scripted_runs(
+        monkeypatch,
+        [all_pass, {"steady": True, "wobbly": "skip", "broken": True}, all_pass],
+    )
+    report = run_dataset_repeated(path, 3)
+
+    assert report.pass_rate == 1.0  # the skipped draw counts in neither column
+    wobbly = next(t for t in report.tallies if t.case_id == "wobbly")
+    assert (wobbly.passed, wobbly.measured) == (2, 2)
+    assert report.skipped == [(2, "wobbly", "unmeasurable: test")]
+    assert report.meets_bar is False
+
+
+def test_a_case_never_measured_is_unmeasured_not_failed(tmp_path, monkeypatch):
+    from ecvt.evals import UNMEASURED, run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    _scripted_runs(monkeypatch, [{"steady": True, "wobbly": True, "broken": "skip"}] * 2)
+    report = run_dataset_repeated(path, 2)
+    broken = next(t for t in report.tallies if t.case_id == "broken")
+    assert broken.verdict == UNMEASURED
+
+
+def test_repeated_report_renders_the_classes_and_the_runs(tmp_path, monkeypatch):
+    from ecvt.evals import render_repeated_report, run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    _scripted_runs(
+        monkeypatch,
+        [
+            {"steady": True, "wobbly": True, "broken": False},
+            {"steady": True, "wobbly": False, "broken": False},
+        ],
+    )
+    text = render_repeated_report(run_dataset_repeated(path, 2))
+
+    assert "over 2 runs" in text
+    assert "stable fail (1): broken 0/2" in text
+    assert "flaky (1): wobbly 1/2" in text
+    assert "broken: broken detail" in text  # why a broken case fails, every time
+    assert "wobbly detail" not in text  # a flaky case's reason only with --verbose
+
+
+def test_repeated_report_as_dict_lists_flaky_and_stable_fail(tmp_path, monkeypatch):
+    from ecvt.evals import run_dataset_repeated
+
+    path = _three_case_dataset(tmp_path)
+    _scripted_runs(
+        monkeypatch,
+        [
+            {"steady": True, "wobbly": True, "broken": False},
+            {"steady": True, "wobbly": False, "broken": False},
+            {"steady": True, "wobbly": True, "broken": False},
+        ],
+    )
+    data = run_dataset_repeated(path, 3).as_dict()
+    assert data["runs"] == 3
+    assert data["flaky"] == ["wobbly"]
+    assert data["stable_fail"] == ["broken"]
+    assert data["per_run_pass_rate"] == [round(2 / 3, 3), round(1 / 3, 3), round(2 / 3, 3)]
+    assert len(data["per_run"]) == 3
+
+
+def test_one_run_keeps_the_original_report(tmp_path, monkeypatch, capsys):
+    """--runs defaults to 1, and at 1 nothing changes: the gates and their parsers
+    read the same output they always have."""
+    from ecvt import evals
+
+    path = _three_case_dataset(tmp_path)
+    _scripted_runs(monkeypatch, [{"steady": True, "wobbly": True, "broken": True}])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert evals.main([str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "pooled" not in out and "over 1 runs" not in out
+    assert "a01_manager: 100% (3/3)" in out
+
+
+def test_runs_below_one_is_refused(tmp_path):
+    from ecvt import evals
+
+    with pytest.raises(SystemExit):
+        evals.main([str(_three_case_dataset(tmp_path)), "--runs", "0"])

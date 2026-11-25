@@ -35,8 +35,14 @@ def run_check(check: dict) -> tuple[str, str, float]:
 
     start = time.monotonic()
     try:
+        # -e and pipefail, so a failing step fails the check. Without them the
+        # exit status was the last command's, and most checks end in an echo:
+        # G1-4 and G2-4 ran the eval runner, then `echo "EVALS MEET BAR"`, and
+        # passed with the runner exiting 1 below the bar. -u stays off — a
+        # check reading an unset variable is a check bug to fix, not a reason
+        # for the gate to stop here.
         proc = subprocess.run(
-            ["bash", "-c", check["cmd"]],
+            ["bash", "-e", "-o", "pipefail", "-c", check["cmd"]],
             cwd=ROOT,
             capture_output=True,
             text=True,

@@ -754,6 +754,196 @@ def run_dataset(
     return report
 
 
+# --- repeated runs ---------------------------------------------------------
+#
+# One run of an eval is one draw. a03's measured 90% and 70% on the same code
+# and the same dataset, and its dominant failure — a generation exhausting its
+# attempts — landed on a different case every time. A gate that reads one draw
+# against an 80% bar passes or fails by luck, so a dataset can be run N times
+# and judged on the pooled rate, with each case's k/N kept so a flaky case is
+# told apart from a broken one.
+
+STABLE_PASS = "stable_pass"
+FLAKY = "flaky"
+STABLE_FAIL = "stable_fail"
+UNMEASURED = "unmeasured"
+
+
+@dataclass
+class CaseTally:
+    """One case across N runs: how often it passed, of the runs that measured it."""
+
+    case_id: str
+    scoring: str
+    category: str
+    passed: int = 0
+    measured: int = 0
+    last_failure: str = ""
+
+    @property
+    def verdict(self) -> str:
+        """`stable_fail` (0/N) is kept apart from `flaky` (some but not all):
+        the first is a broken case or a broken behaviour, the second is noise
+        around a working one, and they call for different fixes."""
+        if self.measured == 0:
+            return UNMEASURED
+        if self.passed == self.measured:
+            return STABLE_PASS
+        if self.passed == 0:
+            return STABLE_FAIL
+        return FLAKY
+
+
+@dataclass
+class RepeatedReport:
+    agent: str
+    runs: list[EvalReport]
+    tallies: list[CaseTally]
+    usage: Usage
+
+    @property
+    def pooled(self) -> tuple[int, int]:
+        """(passes, results) over every run — skipped cases count in neither."""
+        return (
+            sum(t.passed for t in self.tallies),
+            sum(t.measured for t in self.tallies),
+        )
+
+    @property
+    def pass_rate(self) -> float | None:
+        passed, total = self.pooled
+        return passed / total if total else None
+
+    @property
+    def skipped(self) -> list[tuple[int, str, str]]:
+        """(run number, case_id, reason), run numbers from 1."""
+        return [(i, c, r) for i, run in enumerate(self.runs, start=1) for c, r in run.skipped]
+
+    @property
+    def meets_bar(self) -> bool:
+        """Same rule as one run: any skip, in any run, keeps the bar unmet.
+
+        A case measured in two runs of three is one the gate did not fully see,
+        and the pooled rate would otherwise quietly drop its missing draw.
+        """
+        rate = self.pass_rate
+        return bool(rate is not None and rate >= PASS_THRESHOLD and not self.skipped)
+
+    def by_verdict(self, verdict: str) -> list[CaseTally]:
+        return [t for t in self.tallies if t.verdict == verdict]
+
+    def as_dict(self) -> dict[str, Any]:
+        passed, total = self.pooled
+        rate = self.pass_rate
+        return {
+            "agent": self.agent,
+            "runs": len(self.runs),
+            "passed": passed,
+            "results": total,
+            "pass_rate": round(rate, 3) if rate is not None else None,
+            "threshold": PASS_THRESHOLD,
+            "meets_bar": self.meets_bar,
+            "per_run_pass_rate": [
+                round(r.pass_rate, 3) if r.pass_rate is not None else None for r in self.runs
+            ],
+            "cases": [
+                {
+                    "case": t.case_id,
+                    "scoring": t.scoring,
+                    "category": t.category,
+                    "passed": t.passed,
+                    "measured": t.measured,
+                    "verdict": t.verdict,
+                }
+                for t in self.tallies
+            ],
+            "flaky": [t.case_id for t in self.by_verdict(FLAKY)],
+            "stable_fail": [t.case_id for t in self.by_verdict(STABLE_FAIL)],
+            "skipped": [{"run": i, "case": c, "reason": r} for i, c, r in self.skipped],
+            "usage": self.usage.as_dict(),
+            "per_run": [r.as_dict() for r in self.runs],
+        }
+
+
+def run_dataset_repeated(
+    dataset_path: str | Path,
+    runs: int,
+    *,
+    ctx: AdapterContext | None = None,
+    only: str | None = None,
+    skip_judge: bool = False,
+) -> RepeatedReport:
+    """Run a dataset `runs` times and pool the results per case.
+
+    Each run is an ordinary `run_dataset`, so everything that keeps one bad
+    case from stopping a run holds here too. Cases are tallied in dataset
+    order, including ones that were skipped in every run.
+    """
+    if runs < 1:
+        raise ValueError("runs must be at least 1")
+    ctx = ctx or AdapterContext()
+    agent, _ = adapter_for(dataset_path)
+    cases, _ = load_dataset(dataset_path)
+    if only:
+        cases = [c for c in cases if c.id == only]
+    tallies = {c.id: CaseTally(c.id, c.scoring, c.category) for c in cases}
+
+    reports: list[EvalReport] = []
+    usage = Usage(model=ctx.model)
+    for _ in range(runs):
+        report = run_dataset(dataset_path, ctx=ctx, only=only, skip_judge=skip_judge)
+        reports.append(report)
+        _merge(usage, report.usage)
+        for result in report.results:
+            tally = tallies.setdefault(
+                result.case_id, CaseTally(result.case_id, result.scoring, result.category)
+            )
+            tally.measured += 1
+            if result.passed:
+                tally.passed += 1
+            else:
+                tally.last_failure = result.detail
+
+    return RepeatedReport(agent=agent, runs=reports, tallies=list(tallies.values()), usage=usage)
+
+
+def render_repeated_report(report: RepeatedReport, verbose: bool = False) -> str:
+    passed, total = report.pooled
+    rate = report.pass_rate
+    n = len(report.runs)
+    per_run = " · ".join(
+        f"{r.pass_rate:.0%}" if r.pass_rate is not None else "—" for r in report.runs
+    )
+    lines = [
+        f"{report.agent}: "
+        + (f"{rate:.0%} pooled" if rate is not None else "no cases run")
+        + f" ({passed}/{total}) over {n} runs"
+        + f" · bar {PASS_THRESHOLD:.0%} · "
+        + ("MEETS BAR" if report.meets_bar else "BELOW BAR"),
+        f"  runs: {per_run}",
+    ]
+    for verdict, label in ((STABLE_FAIL, "stable fail"), (FLAKY, "flaky")):
+        group = report.by_verdict(verdict)
+        if group:
+            lines.append(
+                f"  {label} ({len(group)}): "
+                + " · ".join(f"{t.case_id} {t.passed}/{t.measured}" for t in group)
+            )
+    # Why a broken case fails is worth a line every time; a flaky case's
+    # reason changes run to run, so it is only shown when asked for.
+    shown = report.by_verdict(STABLE_FAIL) + (report.by_verdict(FLAKY) if verbose else [])
+    for t in shown:
+        lines.append(f"    {t.case_id}: {t.last_failure[:DISPLAY_DETAIL_CHARS]}")
+    if verbose:
+        for t in report.by_verdict(STABLE_PASS):
+            lines.append(f"  pass  {t.case_id}  {t.passed}/{t.measured}  [{t.scoring}]")
+    for i, case_id, reason in report.skipped:
+        lines.append(f"  SKIP  run {i}  {case_id}  {reason}")
+    if report.usage.calls:
+        lines.append(f"  usage: {json.dumps(report.usage.as_dict())}")
+    return "\n".join(lines)
+
+
 def render_report(report: EvalReport, verbose: bool = False) -> str:
     rate = report.pass_rate
     lines = [
@@ -801,7 +991,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate the datasets without running anything.",
     )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Run each dataset N times and judge the pooled rate; cases passing in some "
+        "runs but not all are listed as flaky, 0/N as stable fail. Each run costs a "
+        "full dataset's worth of calls.",
+    )
     args = parser.parse_args(argv)
+    if args.runs < 1:
+        parser.error("--runs must be at least 1")
 
     load_env()
 
@@ -841,17 +1041,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     ctx = AdapterContext(base_url=args.base_url, model=args.model)
-    reports = []
+    reports: list[EvalReport | RepeatedReport] = []
     for path in args.datasets:
         try:
-            report = run_dataset(
-                path, ctx=ctx, only=args.only, skip_judge=args.skip_judge
-            )
+            if args.runs == 1:
+                report: EvalReport | RepeatedReport = run_dataset(
+                    path, ctx=ctx, only=args.only, skip_judge=args.skip_judge
+                )
+            else:
+                report = run_dataset_repeated(
+                    path, args.runs, ctx=ctx, only=args.only, skip_judge=args.skip_judge
+                )
         except (OSError, ValueError) as exc:
             print(f"Dataset problem: {exc}", file=sys.stderr)
             return 1
         reports.append(report)
-        print(render_report(report, verbose=args.verbose))
+        if isinstance(report, RepeatedReport):
+            print(render_repeated_report(report, verbose=args.verbose))
+        else:
+            print(render_report(report, verbose=args.verbose))
 
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
