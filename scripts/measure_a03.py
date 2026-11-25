@@ -47,6 +47,8 @@ ERROR_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("union_branch", ("discriminator", "does not match any of the expected tags")),
     ("no_race_or_replay", ("never uses",)),
     ("missing_category", ("every category needs",)),
+    # `scenarios` sent as a string of JSON text that does not parse (M3).
+    ("json_string", ("type=list_type",)),
 )
 
 

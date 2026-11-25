@@ -60,18 +60,8 @@ LAST_ERROR_CHARS = 1200
 
 
 def _why(what: str, exc: StructuredCallError) -> str:
-    """A stage failure message that says what was wrong, not just how often.
-
-    StructuredCallError's own message is "<tool> produced no valid output in N
-    attempts" — it names no rule. The validator errors are in `exc.attempts`,
-    and dropping them meant state.json recorded a stage failure with nothing to
-    act on: diagnosing one live scenario_gen failure took a second live run to
-    recover errors the first run already had (2026-11-24).
-    """
-    last = exc.attempts[-1] if exc.attempts else ""
-    if not last:
-        return f"{what}: {exc}"
-    return f"{what}: {exc}; last error: {last[:LAST_ERROR_CHARS]}"
+    """Kept as the Manager's name for `StructuredCallError.explain`."""
+    return exc.explain(what, LAST_ERROR_CHARS)
 
 
 def _base_url() -> str:

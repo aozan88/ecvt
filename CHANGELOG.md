@@ -125,6 +125,15 @@ stays where it is.
   does not use (ADR 0001), linked from nothing.
 
 ### Fixed
+- **a03 no longer exhausts its attempts on a stuck correction.** Every
+  generation that failed all four attempts failed them with one identical
+  error: the correction turn shows the model its own rejected object and it
+  re-sends it. `structured_call` now restarts from the original request after
+  two identical rejections, and a correction for a value sent as unparseable
+  JSON text names the syntax error, its position and the text around it — the
+  old message, "Input should be a valid list", gave the model nothing to fix.
+  The chain's a03 failure message now carries the last validator error, as the
+  Manager's did; three M3 failures had lost it.
 - A gate check with `! cmd` on any line but its last always passed:
   `bash -e` does not stop on a negated command. Two G3 drafts had it (the STUB
   check and a06's no-local-rules check); a test now rejects the pattern in
@@ -139,6 +148,24 @@ stays where it is.
   `git ls-remote --tags origin`.
 
 ### Measured
+- **a03 exhaustion, M3.** Spec-only, wallet-api, `claude-haiku-5-5`,
+  `scripts/measure_a03.py`, 24 generations per arm unless noted:
+
+  | Arm | Valid | Exhausted | First attempt | Cost |
+  |---|---|---|---|---|
+  | `main` | 24/24 | 0 | 9/24 | $0.126 |
+  | `main`, instrumented probe (n=12) | 10/12 | 2 | — | — |
+  | + JSON error named in the correction | 22/24 | 2 | 16/24 | $0.113 |
+  | + restart after two identical rejections | **24/24** | **0** | 14/24 | **$0.112** |
+
+  Without the restart, 4 of 60 generations exhausted (with the 3 of 18 live
+  chain runs, the same rate); with it, 0 of 24. That alone is not a decisive
+  sample. The mechanism was seen directly: one generation failed three
+  attempts with the same `Field required` and validated on the fresh fourth,
+  where it would previously have been lost. The probe also showed what the
+  `json_string` failures are: `stop_reason` was `tool_use` and the text was
+  complete — not truncation, but a stray `}` inside JSON the model serialised
+  itself, re-sent unchanged on every correction.
 - **M3-T3, scoring through ecvt-eval.** Offline: 282 recorded scorings over
   stdio equal the in-process rules. Live, five `--plugin wallet` runs with a06
   scoring via the server: 7 · 6 · 8 · 7 · 6 (min 6 / median 7 / max 8), level

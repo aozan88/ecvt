@@ -107,7 +107,7 @@ def run_chain(args: argparse.Namespace) -> int:
                 per_category=args.per_category,
             )
         except StructuredCallError as exc:
-            raise StageError(f"scenario generation failed: {exc}") from exc
+            raise StageError(exc.explain("scenario generation failed")) from exc
         _merge(usage, result.usage)
         write_scenarios_jsonl(scenarios_path, scenario_set)
         scenarios = scenario_set.scenarios

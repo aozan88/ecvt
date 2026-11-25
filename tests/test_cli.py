@@ -445,3 +445,20 @@ def test_gate_check_only_runs_the_named_checks(tmp_path, monkeypatch, capsys):
     assert "G3-13" in out and "G3-1 " not in out and "partial run" in out
     monkeypatch.setattr(sys, "argv", ["gate_check.py", "M3", "--only", "G3-99"])
     assert gc.main() == 1
+
+
+def test_chain_reports_why_a03_failed_not_just_how_often(tmp_path, monkeypatch, capsys):
+    """Three a03 failures in 18 M3 runs left only "no valid output in 4 attempts"."""
+    from ecvt.llm import StructuredCallError, Usage
+
+    def fail(**_):
+        raise StructuredCallError(
+            "scenario_generator_output produced no valid output in 4 attempts",
+            attempts=["attempt 4: scenarios.5.stress.concurrency Field required"],
+            usage=Usage(model="m"),
+        )
+
+    monkeypatch.setattr("agents.a03_scenario_generator.agent.generate_scenario_set", fail)
+    assert main(["run", "--out-dir", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert "4 attempts" in err and "concurrency Field required" in err
