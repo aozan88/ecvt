@@ -1,0 +1,62 @@
+{
+  "id": "ecvtRunWebhook01",
+  "name": "ECVT — webhook to ecvt run",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "0b5d1c2e-0001-4a7e-9c1e-ecvt00000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "5f0e6c4a-ecvt-4d21-9b7e-5e1a00000001",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ecvt-run",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "0b5d1c2e-0002-4a7e-9c1e-ecvt00000002",
+      "name": "Start ECVT run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.ECVT_TRIGGER_URL || 'http://host.docker.internal:8090') + '/runs' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-ECVT-Token", "value": "={{ $env.ECVT_TRIGGER_TOKEN || '' }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body || {}) }}",
+        "options": {
+          "timeout": 1800000,
+          "response": { "response": { "fullResponse": true, "neverError": true } }
+        }
+      }
+    },
+    {
+      "id": "0b5d1c2e-0003-4a7e-9c1e-ecvt00000003",
+      "name": "Respond with the run",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [520, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": { "responseCode": "={{ $json.statusCode }}" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Start ECVT run", "type": "main", "index": 0 }]] },
+    "Start ECVT run": { "main": [[{ "node": "Respond with the run", "type": "main", "index": 0 }]] }
+  }
+}

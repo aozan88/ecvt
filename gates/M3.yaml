@@ -4,7 +4,7 @@
 # G3-2 performs one live chain run per plugin into artifacts/gate-m3/<plugin>/; the
 # checks after it inspect those runs. The gate writes only into artifacts/ (gitignored).
 #
-# Items whose work has not landed (M3-T5 n8n, M3-T6 landing, release)
+# Items whose work has not landed (M3-T6 landing, release)
 # are listed now and FAIL until that work replaces the placeholder with a real check:
 # a gate missing an item cannot say the milestone is complete.
 gate: G3
@@ -178,12 +178,44 @@ checks:
       "
     expect_stdout: REPORTS OK
 
-  # --- G3 items 4-5: not landed yet; each placeholder is replaced by its task
+  # --- G3 item 4: n8n webhook triggers a run (M3-T5)
   - id: G3-11
-    desc: n8n webhook triggers a run, curl test (M3-T5)
+    desc: an n8n webhook triggers a run (curl → n8n → ecvt serve → ecvt run)
+    requires_env: [ANTHROPIC_API_KEY]
+    # Needs a Docker daemon. Rules-only run (judge off) to keep the check cheap: it
+    # proves the trigger path, not the catch rate (G3-2/G3-8 do that).
+    timeout: 900
     cmd: |
-      echo "PENDING M3-T5 — replace with the webhook curl check"; exit 1
+      docker version --format '{{.Server.Version}}' >/dev/null || { echo "Docker daemon not running"; exit 1; }
+      TOKEN=$(python -c "import secrets; print(secrets.token_hex(16))")
+      uvicorn app:app --app-dir examples/wallet-api --port 8771 >/dev/null 2>&1 &
+      W=$!
+      ECVT_TRIGGER_TOKEN=$TOKEN python -m ecvt.cli serve --host 0.0.0.0 --port 8092 \
+        --base-url http://localhost:8771 >/dev/null 2>&1 &
+      S=$!
+      trap 'kill $W $S 2>/dev/null; docker rm -f ecvt-gate-n8n >/dev/null 2>&1' EXIT
+      docker rm -f ecvt-gate-n8n >/dev/null 2>&1 || true
+      docker run -d --name ecvt-gate-n8n -p 5679:5678 \
+        --add-host host.docker.internal:host-gateway \
+        -e N8N_LISTEN_ADDRESS=0.0.0.0 -e N8N_BLOCK_ENV_ACCESS_IN_NODE=false \
+        -e N8N_DIAGNOSTICS_ENABLED=false \
+        -e ECVT_TRIGGER_URL=http://host.docker.internal:8092 -e ECVT_TRIGGER_TOKEN=$TOKEN \
+        -v "$PWD/workflows/n8n:/workflows:ro" --entrypoint sh n8nio/n8n:latest \
+        -c "n8n import:workflow --input=/workflows/ecvt-run.json && n8n publish:workflow --id=ecvtRunWebhook01 && exec n8n start" >/dev/null
+      for i in $(seq 1 120); do curl -sf localhost:5679/healthz -o /dev/null && break; sleep 2; done
+      sleep 5
+      curl -s -m 600 -X POST localhost:5679/webhook/ecvt-run -H 'Content-Type: application/json' \
+        -d '{"target": "examples/wallet-api", "plugin": "wallet", "judge": false}' > artifacts/gate-m3-n8n.json
+      python -c "
+      import json
+      r = json.load(open('artifacts/gate-m3-n8n.json'))
+      assert r.get('status') == 'completed', r
+      assert r['plugin'] == 'wallet' and r['recommendation'], r
+      print(f\"N8N TRIGGERED {r['run_dir']} · {r['recommendation']}\")
+      "
+    expect_stdout: N8N TRIGGERED
 
+  # --- G3 item 5: not landed yet; the placeholder is replaced by M3-T6
   - id: G3-12
     desc: landing page is live and the video link resolves (M3-T6)
     cmd: |
