@@ -1,6 +1,6 @@
 """Milestone gate checker (Master Plan v7, M0-T5).
 
-Usage: python scripts/gate_check.py M0 [--verbose]
+Usage: python scripts/gate_check.py M0 [--verbose] [--only G0-1,G0-3]
 
 Reads gates/<milestone>.yaml, runs each check from the repo root and prints a
 PASS / FAIL / SKIP table. Exit code: 0 = all PASS, 1 = any FAIL, 2 = no FAIL
@@ -68,6 +68,11 @@ def main() -> int:
     parser.add_argument("milestone", help="e.g. M0")
     parser.add_argument("--verbose", "-v", action="store_true", help="show detail column")
     parser.add_argument(
+        "--only",
+        help="Comma-separated check ids to run (e.g. the free ones). The verdict then "
+        "covers only those checks; a gate closes on a full run.",
+    )
+    parser.add_argument(
         "--format",
         choices=("table", "plain"),
         default="table",
@@ -90,8 +95,17 @@ def main() -> int:
         return 1
     spec = yaml.safe_load(gate_file.read_text(encoding="utf-8"))
 
+    checks = spec["checks"]
+    if args.only:
+        wanted = {c.strip() for c in args.only.split(",") if c.strip()}
+        unknown = wanted - {c["id"] for c in checks}
+        if unknown:
+            print(f"Unknown check id(s): {', '.join(sorted(unknown))}", file=sys.stderr)
+            return 1
+        checks = [c for c in checks if c["id"] in wanted]
+
     rows = []
-    for check in spec["checks"]:
+    for check in checks:
         status, detail, secs = run_check(check)
         rows.append((check["id"], check["desc"], status, secs, detail))
 
@@ -114,7 +128,8 @@ def main() -> int:
     statuses = [r[2] for r in rows]
     n_pass, n_fail, n_skip = (statuses.count(s) for s in ("PASS", "FAIL", "SKIP"))
     verdict = "PASS" if n_pass == len(statuses) else ("FAIL" if n_fail else "INCOMPLETE")
-    print(f"\n{spec['gate']}: {verdict} ({n_pass} pass · {n_fail} fail · {n_skip} skip)")
+    partial = f" — partial run: {args.only}" if args.only else ""
+    print(f"\n{spec['gate']}: {verdict} ({n_pass} pass · {n_fail} fail · {n_skip} skip){partial}")
     return {"PASS": 0, "FAIL": 1}.get(verdict, 2)
 
 
