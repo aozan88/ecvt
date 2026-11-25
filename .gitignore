@@ -41,6 +41,7 @@ claude_outputs/
 
 # Local-only exports (git bundles, transcript dumps)
 Claude outputs/
+*.bundle
 
 # ECVT run artifacts
 artifacts/
