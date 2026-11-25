@@ -33,6 +33,12 @@ stays where it is.
   No in-process fallback: a server that cannot start fails the scoring
   (`EvalServerError`). Over 10 recorded runs, 282 scorings via stdio match the
   in-process rules exactly.
+- **`gates/M3.yaml` (G3).** 14 checks for the Master Plan's six G3 items:
+  plugins by name, both plugins run live, ecvt-eval over stdio and a06 with no
+  in-process rule path, evals (a03 and a06 pooled over 3 runs), pytest, catch
+  rate, docs without STUB, CHANGELOG 1.0.0, tag `v1.0.0` on the remote. The
+  report, n8n and landing items are placeholders that fail until M3-T4..T6
+  replace them. `gate_check.py --only <ids>` runs a subset.
 - Architecture docs follow the plugin layer: `architecture.md`, `pipeline.md`,
   agent specs for a05 and a06 (were stubs), `docs/07-plugins/`. `pipeline.md`
   listed ground truth as an input of evaluation; it is not (ADR 0007).
@@ -88,6 +94,10 @@ stays where it is.
   does not use (ADR 0001), linked from nothing.
 
 ### Fixed
+- A gate check with `! cmd` on any line but its last always passed:
+  `bash -e` does not stop on a negated command. Two G3 drafts had it (the STUB
+  check and a06's no-local-rules check); a test now rejects the pattern in
+  every gate file. G0-5 (final line) and G2-8 (`&&` chain) were not affected.
 - `scripts/gate_check.py` tested `requires_env` against `os.environ` without
   reading `.env`. With the key sitting there it skipped five of G2's nine checks
   and still printed a verdict, reporting the milestone as not closable for the

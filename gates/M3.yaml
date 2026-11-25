@@ -1,0 +1,182 @@
+# Gate G3 — M3 plugins, MCP eval, report, n8n, landing → v1.0.0 (Master Plan v7)
+# Run: python scripts/gate_check.py M3 --format plain -v      (one check: --only G3-1)
+#
+# G3-2 performs one live chain run per plugin into artifacts/gate-m3/<plugin>/; the
+# checks after it inspect those runs. The gate writes only into artifacts/ (gitignored).
+#
+# Items whose work has not landed (M3-T4 report, M3-T5 n8n, M3-T6 landing, release)
+# are listed now and FAIL until that work replaces the placeholder with a real check:
+# a gate missing an item cannot say the milestone is complete.
+gate: G3
+milestone: M3
+checks:
+  # --- G3 item 1: Plugin ABC + 2 plugins (rest_api, wallet), selectable by name
+  - id: G3-1
+    desc: plugins load by name — rest_api and wallet run, a stub plugin is refused
+    cmd: |
+      python -c "
+      from plugins._base.plugin import PluginContext, PluginError, available, load
+      ctx = PluginContext(base_url='http://x')
+      assert {'rest_api', 'wallet'} <= set(available()), available()
+      assert load('rest_api', ctx).domain_rules() == []
+      n = len(load('wallet', ctx).domain_rules())
+      assert 5 <= n <= 10, f'wallet has {n} rules; plan says 5-10'
+      try:
+          load('ikys', ctx)
+          raise SystemExit('ikys loaded: a stub must be refused, never a fallback')
+      except PluginError:
+          pass
+      print(f'PLUGINS OK rest_api + wallet ({n} rules)')
+      "
+    expect_stdout: PLUGINS OK
+
+  - id: G3-2
+    desc: ecvt run --plugin rest_api and --plugin wallet each finish in one command (exit 0)
+    requires_env: [ANTHROPIC_API_KEY]
+    timeout: 600
+    cmd: |
+      rm -rf artifacts/gate-m3
+      uvicorn app:app --app-dir examples/wallet-api --port 8769 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 40); do curl -sf localhost:8769/openapi.json -o /dev/null && break; sleep 0.3; done
+      for p in rest_api wallet; do
+        python -m ecvt.cli run --plugin "$p" \
+          --target examples/wallet-api \
+          --base-url http://localhost:8769 \
+          --out-dir "artifacts/gate-m3/$p" \
+          --report
+      done
+      echo "BOTH PLUGINS RAN"
+    expect_stdout: BOTH PLUGINS RAN
+
+  # --- G3 item 2: Evaluation scores through the ecvt-eval MCP server
+  - id: G3-3
+    desc: ecvt-eval starts over stdio and answers score_response and list_rules
+    timeout: 120
+    cmd: |
+      python -c "
+      import asyncio, sys
+      from mcp import Client, StdioServerParameters
+      from tests.test_scoring import _wallet_case, _xfer
+      s, r = _wallet_case([_xfer('1', '1', 10.0, after=(100.0, 100.0))], [])
+      async def go():
+          srv = StdioServerParameters(command=sys.executable, args=['-m', 'ecvt.eval_server'])
+          async with Client(srv) as c:
+              names = {t.name for t in (await c.list_tools()).tools}
+              res = await c.call_tool('score_response', {'scenario': s.model_dump(mode='json'),
+                  'execution': r.model_dump(mode='json'), 'plugin': 'wallet'})
+              return names, res
+      names, res = asyncio.run(go())
+      assert {'score_response', 'list_rules'} <= names, names
+      assert not res.is_error and res.structured_content['verdict'] == 'fail', res
+      print('ECVT-EVAL OK over stdio')
+      "
+    expect_stdout: ECVT-EVAL OK
+
+  - id: G3-4
+    desc: a06 has no in-process rule path, and the wallet run's scores carry rules from ecvt-eval
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      if grep -nE "^[^#]*\brun_rules\(" agents/a06_evaluation/agent.py; then
+        echo "a06 calls run_rules in-process"; exit 1
+      fi
+      python -c "
+      from ecvt.scoring import read_scores_jsonl
+      scores = read_scores_jsonl('artifacts/gate-m3/wallet/scores.jsonl')
+      names = {c.name for s in scores for d in s.dimensions for c in d.checks}
+      assert any(n.startswith('wallet.') for n in names), 'no wallet rule reached the scores'
+      print(f'SCORED VIA ECVT-EVAL {len(scores)} scenarios')
+      "
+    expect_stdout: SCORED VIA ECVT-EVAL
+
+  # --- quality carried from G1/G2
+  - id: G3-5
+    desc: all five agents' eval datasets are well-formed with >= 10 cases
+    cmd: |
+      python scripts/eval_runner.py \
+        agents/a01_manager/eval_dataset.jsonl \
+        agents/a02_domain_intelligence/eval_dataset.jsonl \
+        agents/a03_scenario_generator/eval_dataset.jsonl \
+        agents/a05_execution/eval_dataset.jsonl \
+        agents/a06_evaluation/eval_dataset.jsonl \
+        --check-only
+      echo "DATASETS OK"
+    expect_stdout: DATASETS OK
+
+  - id: G3-6
+    desc: a03 and a06 evals >= 80% pooled over 3 runs; a05 >= 80%
+    requires_env: [ANTHROPIC_API_KEY]
+    # a03 and a06 changed in M3 (a06 now scores through ecvt-eval) and both call a
+    # model, so each is judged on three runs (the eval_runner --runs rule from M3
+    # Hat A). a05 makes no model call; one run is the measurement. a01 and a02 are
+    # unchanged since G2-4.
+    timeout: 3600
+    cmd: |
+      uvicorn app:app --app-dir examples/wallet-api --port 8770 >/dev/null 2>&1 &
+      PID=$!; trap 'kill $PID 2>/dev/null' EXIT
+      for i in $(seq 1 40); do curl -sf localhost:8770/openapi.json -o /dev/null && break; sleep 0.3; done
+      python scripts/eval_runner.py agents/a03_scenario_generator/eval_dataset.jsonl \
+        --runs 3 --out artifacts/gate-m3/evals-a03.json
+      python scripts/eval_runner.py agents/a05_execution/eval_dataset.jsonl \
+        --base-url http://localhost:8770 --out artifacts/gate-m3/evals-a05.json
+      python scripts/eval_runner.py agents/a06_evaluation/eval_dataset.jsonl \
+        --runs 3 --base-url http://localhost:8770 --out artifacts/gate-m3/evals-a06.json
+      echo "EVALS MEET BAR"
+    expect_stdout: EVALS MEET BAR
+
+  - id: G3-7
+    desc: pytest green (unit + integration)
+    timeout: 300
+    cmd: python -m pytest -q
+
+  - id: G3-8
+    desc: the wallet run's report states the catch rate against ground truth
+    requires_env: [ANTHROPIC_API_KEY]
+    cmd: |
+      grep -ohE "Catch rate: [0-9]+/[0-9]+" artifacts/gate-m3/wallet/report.md
+    expect_stdout: "Catch rate:"
+
+  - id: G3-9
+    desc: agent specs, plugin and MCP docs written (no STUB); architecture names the M3 seams
+    cmd: |
+      # `if`, not a bare `! grep`: bash -e does not stop on a negated command,
+      # so `! grep` alone would let a STUB through.
+      if grep -l "STUB" \
+        docs/03-agents/manager.md docs/03-agents/domain-intelligence.md \
+        docs/03-agents/scenario-generator.md docs/03-agents/execution.md \
+        docs/03-agents/evaluation.md \
+        docs/07-plugins/interface.md docs/07-plugins/rest-api.md \
+        mcp-servers/README.md; then
+        echo "STUB docs remain (listed above)"; exit 1
+      fi
+      grep -q "plugin.execute" docs/02-architecture/architecture.md
+      grep -q "ecvt-eval" docs/02-architecture/architecture.md
+      grep -q "ecvt-eval" docs/02-architecture/pipeline.md
+      echo "DOCS OK"
+    expect_stdout: DOCS OK
+
+  # --- G3 items 3-5: not landed yet; each placeholder is replaced by its task
+  - id: G3-10
+    desc: Dev + Business report produced by one command (M3-T4)
+    cmd: |
+      echo "PENDING M3-T4 — replace with the report check"; exit 1
+
+  - id: G3-11
+    desc: n8n webhook triggers a run, curl test (M3-T5)
+    cmd: |
+      echo "PENDING M3-T5 — replace with the webhook curl check"; exit 1
+
+  - id: G3-12
+    desc: landing page is live and the video link resolves (M3-T6)
+    cmd: |
+      echo "PENDING M3-T6 — replace with the landing + video URL checks"; exit 1
+
+  # --- G3 item 6: release
+  - id: G3-13
+    desc: CHANGELOG has a 1.0.0 section
+    cmd: grep -E "^## \[1\.0\.0\]" CHANGELOG.md
+
+  - id: G3-14
+    desc: tag v1.0.0 exists on the remote
+    cmd: git ls-remote --tags origin "refs/tags/v1.0.0"
+    expect_stdout: refs/tags/v1.0.0

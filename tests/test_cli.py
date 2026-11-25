@@ -247,8 +247,19 @@ def test_manager_accepts_the_flags_it_does_honour():
     """No false positives: these are threaded through and must not be refused."""
     parser = build_parser()
     args = parser.parse_args(
-        ["run", "--manager", "--base-url", "http://localhost:9999", "--model", "x",
-         "--plugin", "rest_api", "--max-budget", "1.0", "--report"]
+        [
+            "run",
+            "--manager",
+            "--base-url",
+            "http://localhost:9999",
+            "--model",
+            "x",
+            "--plugin",
+            "rest_api",
+            "--max-budget",
+            "1.0",
+            "--report",
+        ]
     )
     assert unsupported_with_manager(parser, args) == []
 
@@ -375,7 +386,7 @@ def test_gate_check_loads_env_before_running_checks():
     still printed a result, reporting the milestone as not closable for the
     wrong reason."""
     src = (REPO_ROOT / "scripts" / "gate_check.py").read_text(encoding="utf-8")
-    main_src = src[src.index("def main()"):]
+    main_src = src[src.index("def main()") :]
     assert "load_env()" in main_src
     # Before the checks run, or it has not helped.
     assert main_src.index("load_env()") < main_src.index("run_check")
@@ -390,6 +401,45 @@ def test_no_gate_checks_its_tag_locally():
         checks = yaml.safe_load(gate.read_text(encoding="utf-8"))["checks"]
         for check in checks:
             assert "git tag -l" not in check["cmd"], f"{gate.name} {check['id']}"
-        assert any(
-            "ls-remote" in c["cmd"] and "refs/tags/" in c["cmd"] for c in checks
-        ), f"{gate.name} has no remote tag check"
+        assert any("ls-remote" in c["cmd"] and "refs/tags/" in c["cmd"] for c in checks), (
+            f"{gate.name} has no remote tag check"
+        )
+
+
+def _logical_lines(cmd: str) -> list[str]:
+    joined = cmd.replace("\\\n", " ")
+    return [
+        ln.strip() for ln in joined.splitlines() if ln.strip() and not ln.strip().startswith("#")
+    ]
+
+
+def test_no_gate_check_negates_a_command_before_its_last_line():
+    """`bash -e` does not stop on a command negated with `!`, so `! grep STUB …`
+    on any line but the last lets the check pass whatever grep found. Two G3
+    checks did exactly that before this test; a final-line `!` is fine (it sets
+    the exit status), and so is `! cmd && …` (the chain carries it)."""
+    import yaml
+
+    for gate in sorted((REPO_ROOT / "gates").glob("M*.yaml")):
+        for check in yaml.safe_load(gate.read_text(encoding="utf-8"))["checks"]:
+            lines = _logical_lines(check["cmd"])
+            for line in lines[:-1]:
+                assert not (line.startswith("! ") and "&&" not in line), (
+                    f"{gate.name} {check['id']}: '{line[:60]}' — use if … then exit 1"
+                )
+
+
+def test_gate_check_only_runs_the_named_checks(tmp_path, monkeypatch, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "gate_check", REPO_ROOT / "scripts" / "gate_check.py"
+    )
+    gc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gc)
+    monkeypatch.setattr(sys, "argv", ["gate_check.py", "M3", "--only", "G3-13"])
+    gc.main()
+    out = capsys.readouterr().out
+    assert "G3-13" in out and "G3-1 " not in out and "partial run" in out
+    monkeypatch.setattr(sys, "argv", ["gate_check.py", "M3", "--only", "G3-99"])
+    assert gc.main() == 1
