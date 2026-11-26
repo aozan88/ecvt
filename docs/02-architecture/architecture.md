@@ -1,16 +1,17 @@
 # Architecture
 
-> v1.4 · 2026-11-25 · Max 10 pages. The M1 chain (Scenario → Execution →
+> v1.5 · 2026-11-26 · Max 10 pages. The M1 chain (Scenario → Execution →
 > Evaluation) and the M2 additions — Manager (a01) and Domain Intelligence
 > (a02) — are all live on `main` (PRs #25, #26); M3 adds the plugin layer
-> (M3-T1 #37, M3-T2 #38) the ecvt-eval MCP server (M3-T3) and the Dev + Business reports (M3-T4) and the n8n trigger (M3-T5). Stage contracts, context passing and error
+> (M3-T1 #37, M3-T2 #38) the ecvt-eval MCP server (M3-T3) and the Dev + Business reports (M3-T4) and the n8n trigger (M3-T5); v1.1 adds the browser UI on `ecvt serve` (ADR 0016). Stage contracts, context passing and error
 > handling: [`pipeline.md`](pipeline.md).
 
 ## 1. System context
 
 ```mermaid
 flowchart LR
-    N[n8n webhook] -->|POST /runs| TS[ecvt serve]
+    N[n8n webhook] -->|POST /runs?wait=true| TS[ecvt serve]
+    B[Browser UI] -->|POST /runs · poll GET /runs/id| TS
     TS -->|ecvt run| U
     U[CLI] -->|request text| M[Manager a01<br/>agent · Sonnet]
     M -->|plan from intent| DI[Domain Intelligence a02]
@@ -35,7 +36,7 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 | Component | Job | Model call | Code |
 |---|---|---|---|
 | CLI | Entry point. `ecvt run` runs the fixed chain; `--manager` hands the request to the Manager. `--plugin <name>` (default `rest_api`) is resolved on both paths before any model call. `ecvt report <run_dir>` writes the Dev + Business reports for a finished run. `ecvt serve` is the HTTP trigger | none | `ecvt/cli.py` |
-| Trigger (`ecvt serve`) | `POST /runs` starts `ecvt run … --report` in a subprocess and answers with the result; n8n's webhook workflow calls it. Token beyond loopback, one run at a time, target base URL fixed server-side | none | `ecvt/trigger_server.py`, `workflows/n8n/` |
+| Trigger + UI (`ecvt serve`) | `POST /runs` starts `ecvt run … --report --status-file` in a subprocess: 202 + `run_id`, the run goes on in the background; `?wait=true` answers with the finished run (n8n). `GET /` single-page UI, `GET /runs` history, `GET /runs/<id>` status + step, the two HTML reports, `GET /targets`. Token beyond loopback (all but `/` and `/health`), one run at a time, target base URL fixed server-side, no catch rate in what the UI reads (ADR 0007, 0016) | none | `ecvt/trigger_server.py`, `ecvt/ui.html`, `workflows/n8n/` |
 | Manager (a01) | Classify intent, extract slots, decide retry/stop, write the summary | Agent SDK `query()`, Sonnet | `agents/a01_manager/` |
 | Domain Intelligence (a02) | OpenAPI spec → DomainModel (entities, workflows, rules, gaps) | Messages API, forced tool use, Haiku | `agents/a02_domain_intelligence/` |
 | Scenario Generator (a03) | Spec → ScenarioSet across 7 categories (the DomainModel is not passed in; ADR 0012) | Messages API, forced tool use, Haiku | `agents/a03_scenario_generator/` |

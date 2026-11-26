@@ -5,6 +5,29 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+### Added
+- **Browser UI on `ecvt serve` (v1.1).** `GET /` serves one page
+  (`ecvt/ui.html`, HTML + CSS + vanilla JS, no build step): pick target and
+  plugin, judge on/off, Manager as an option (chain stays the default), Run,
+  live step indicator, the Business recommendation when it ends, Business/Dev
+  report in a sandboxed viewer, run history. Light/dark, no horizontal scroll
+  at 390 px. With a token configured the page asks for it once, keeps it in
+  localStorage and sends it as `X-ECVT-Token`, never in a URL.
+- **New endpoints.** `GET /targets` (directories under `examples/` with
+  `openapi.json`, plus plugins that load — stubs are left out), `GET /runs`
+  (newest first, from each run's `job.json`), `GET /runs/<id>` (status, step,
+  summary), `GET /runs/<id>/report-business.html|report-dev.html`. Run ids are
+  12 hex characters; nothing else in a run directory is served (no report.md,
+  so no catch rate in the UI — ADR 0007). `/health` adds `auth`.
+- **`ecvt run --status-file PATH`**: the current step as JSON, rewritten
+  atomically at each step, chain and Manager alike (ADR 0016).
+
+### Changed
+- **`POST /runs` is asynchronous**: 202 + `run_id`, the run continues in the
+  background. `POST /runs?wait=true` keeps the 1.0 answer; the n8n workflow
+  now calls it — re-import `workflows/n8n/ecvt-run.json` after upgrading.
+- ADR 0016 — async runs and the status file.
+
 ## [1.0.0] - 2026-11-25
 M3 — plugins, the ecvt-eval MCP server, Dev + Business reports, the n8n
 trigger and the landing page. ECVT runs against any OpenAPI target through a
