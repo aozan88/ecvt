@@ -462,3 +462,18 @@ def test_chain_reports_why_a03_failed_not_just_how_often(tmp_path, monkeypatch, 
     assert main(["run", "--out-dir", str(tmp_path)]) == 1
     err = capsys.readouterr().err
     assert "4 attempts" in err and "concurrency Field required" in err
+
+
+def test_no_gate_check_pipes_into_an_early_exit_reader():
+    """Under `pipefail`, `producer | grep -q` (or `| head`) fails whenever the reader
+    exits before the producer has written everything — curl then exits 23. G3-12
+    passed one day and failed the next on the same live page that way."""
+    import re
+
+    import yaml
+
+    early = re.compile(r"\|\s*(grep\s+(-\w*q|--quiet)|head)\b")
+    for gate in sorted((REPO_ROOT / "gates").glob("M*.yaml")):
+        for check in yaml.safe_load(gate.read_text(encoding="utf-8"))["checks"]:
+            for line in _logical_lines(check["cmd"]):
+                assert not early.search(line), f"{gate.name} {check['id']}: {line[:70]}"

@@ -136,6 +136,11 @@ third-party API (Swagger Petstore v3) found four defects, each confirmed by hand
   does not use (ADR 0001), linked from nothing.
 
 ### Fixed
+- G3-12 failed intermittently: `curl | grep -q` under `pipefail` fails whenever
+  grep matches and exits before curl has written everything (curl exit 23). It
+  passed in the release run and failed three times in a row on the merged
+  commit against the same live page. The check now fetches, then searches; a
+  test rejects `| grep -q` and `| head` in every gate file.
 - **Found on a live target (Swagger Petstore v3, run locally, unmodified).**
   Two ECVT faults the demo target never exposed:
   - `probes_readable` failed every 4xx read-back. A rename scenario was marked
