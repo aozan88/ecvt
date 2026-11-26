@@ -28,6 +28,13 @@ All notable changes to ECVT are documented here. Format based on
   now calls it — re-import `workflows/n8n/ecvt-run.json` after upgrading.
 - ADR 0016 — async runs and the status file.
 
+### Verified
+- Real runs after #49 (2026-11-26): G3-2, G3-10, G3-11 PASS — the n8n webhook
+  reaches `POST /runs?wait=true` and answers with the finished run. One chain
+  run started from the browser UI on wallet-api (wallet plugin, judge on):
+  14 scenarios, 27 s, $0.0071, Business report opened in the viewer. Total
+  spend for the four runs: $0.039.
+
 ## [1.0.0] - 2026-11-25
 M3 — plugins, the ecvt-eval MCP server, Dev + Business reports, the n8n
 trigger and the landing page. ECVT runs against any OpenAPI target through a

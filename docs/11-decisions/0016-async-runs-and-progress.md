@@ -1,6 +1,6 @@
 # ADR 0016 — Async runs on `ecvt serve`, progress from a status file
 
-**Status:** Proposed (v1.1 UI, 2026-11-26)
+**Status:** Accepted (Ozan, 2026-11-26)
 **Date:** 2026-11-26
 **Context:** v1.1 puts a browser UI on `ecvt serve` (ADR 0015 ties the demo
 video to it). In 1.0, `POST /runs` held the request until `ecvt run` finished —
