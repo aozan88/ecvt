@@ -1,6 +1,6 @@
 # ADR 0014 — What the ecvt-eval MCP server does, and how a06 reaches it
 
-**Status:** Proposed (M3-T3, 2026-11-25)
+**Status:** Accepted (Ozan, 2026-11-26)
 **Date:** 2026-11-25
 **Context:** M3-T3 asks for a custom MCP server `ecvt-eval` exposing
 `score_response`, with Evaluation (a06) scoring through it (gate G3). a06 has

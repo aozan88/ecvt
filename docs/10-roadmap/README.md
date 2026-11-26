@@ -9,7 +9,7 @@ IDs: `Dnn` day (D00 = 22 Oct 2026) · `Mx-Tn` milestone task · `Gx` gate ·
 `ADR nnnn` decision in `docs/11-decisions/`. A milestone closes only when its
 gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 
-## Status (export 2026-11-24 · D33)
+## Status (export 2026-11-25 · D34)
 
 - **M0 closed.** G0 PASS, tag `v0.0.1`.
 - **M1 closed.** G1 PASS, tag `v0.3.0`. The three agents' evals read a03 90% /
@@ -17,11 +17,20 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
 - **M2 closed.** G2 PASS, tag `v0.5.0` (PRs #25, #26, #27). a01 eval 100%
   (12/12), a02 83% (10/12). One live `ecvt run --manager` runs all four stages
   in order; catch rate 6/10.
+- **M3 at release candidate (v1.0.0).** Plugin ABC + `rest_api` and `wallet`
+  (7 rules) by name (#37, #38, ADR 0013); `ecvt-eval` MCP server, a06 scores
+  through it (#39, ADR 0014); Dev + Business reports (#42); n8n
+  webhook → `ecvt serve` (#43); landing page with sample reports (#44, video
+  deferred by ADR 0015); a03 exhaustion fixed (#45); live-target fixes from
+  Swagger Petstore (#46). Catch rate, M1 chain + wallet: median 7/10 (6–8).
+  Open for G3: GitHub Pages enabled (G3-12) and tag `v1.0.0` (G3-14).
 - **M2-T2 measured, inconclusive.** Over three runs a side, M1 read 5 / 5 / 7
   and M2 read 5 / 7 with one run failing: the bands coincide, so these three
   runs do not separate the two. M2 costs about 7× M1 per run. Telling them
   apart needs 6–10 runs a side — carried into M3, not claimed here.
-- **Open limitation into M3.** `ScenarioDraft` requires `repeat` and
+- **Open limitation into M3 — resolved.** The category union (ADR 0011) cut
+  the numbers asked for from 28 to 8, and restarting after two identical
+  rejections (#45) took exhaustion to 0 of 24. History: `ScenarioDraft` required `repeat` and
   `concurrency` per scenario by design; at the default quota that is 28 numbers
   the model must state, and Haiku omits some. Measured over 8 generations per
   arm: from the spec alone, 8 of 8 sets validate and 4 need a second attempt;
