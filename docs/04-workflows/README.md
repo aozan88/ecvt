@@ -16,7 +16,7 @@ a CI job, a chat command, a schedule — and answer with its result.
 
 ```
 Webhook (POST /webhook/ecvt-run, responds from the last node)
-  → HTTP Request  POST {ECVT_TRIGGER_URL}/runs   header X-ECVT-Token, body passed through
+  → HTTP Request  POST {ECVT_TRIGGER_URL}/runs?wait=true   header X-ECVT-Token, body passed through
   → Respond to Webhook   ECVT's status code and JSON body, unchanged
 ```
 
@@ -25,7 +25,13 @@ Webhook (POST /webhook/ecvt-run, responds from the last node)
 `judge` (default true). The body is passed to ECVT as is; ECVT validates it and
 refuses unknown fields, so n8n holds no rules of its own.
 
-**Output.** 200 with `status`, `run_dir`, `recommendation` (the Business
+**Synchronous on purpose.** Since v1.1 a bare `POST /runs` answers 202 and runs
+in the background (the browser UI polls it, ADR 0016). The workflow asks for
+`?wait=true`, which keeps the M3-T5 behaviour: the webhook replies with the
+finished run. A workflow imported before v1.1 calls bare `/runs` and would get
+the 202 — re-import `workflows/n8n/ecvt-run.json`.
+
+**Output.** 200 with `status`, `run_id`, `run_dir`, `recommendation` (the Business
 report's headline), `verdicts`, `defects_suspected`, `catch_rate` when the
 target has a baseline, `cost_usd`, `elapsed_s`, `reports`. Errors keep ECVT's
 status: 400 bad body, 401 token, 409 busy, 502 run failed.
@@ -48,6 +54,7 @@ image, imports and publishes this workflow, and curls the webhook.
 
 ## Limits
 
-- One run at a time per `ecvt serve`; a second request gets 409, not a queue.
+- One run at a time per `ecvt serve`, UI and n8n together; a second request gets 409, not a queue.
+- Runs started through n8n appear in the UI's run list too (`artifacts/triggered/<run_id>/`).
 - A Manager run started this way records `source: cli` in `state.json`: the
   trigger reaches the Manager through the CLI.

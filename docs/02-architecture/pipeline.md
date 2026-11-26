@@ -1,14 +1,18 @@
 # Validation Pipeline
 
-> v1.4 · 2026-11-25 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
+> v1.5 · 2026-11-26 · Max 2 pages. The M1 chain and the Manager-driven M2 flow
 > are both live on `main`. Patterns and rationale:
 > [`architecture.md`](architecture.md) §3.
 
 ## 1. Flow
 
 Entry points: `ecvt run` (fixed chain, or `--manager`), and `ecvt serve`, which
-n8n's webhook calls and which runs `ecvt run … --report` (M3-T5,
-`docs/04-workflows/`).
+runs `ecvt run … --report --status-file` for n8n's webhook (`POST /runs?wait=true`,
+M3-T5, `docs/04-workflows/`) and for its browser UI (`POST /runs` → 202, then
+`GET /runs/<id>`). Progress is the status file `ecvt run` rewrites at each step —
+`{steps, current, detail}`; chain steps `generate → execute → evaluate → report`,
+Manager steps `intent → domain_intel → scenario_gen → execution → evaluation → report`;
+`current: null` when done, left on the failed step otherwise (ADR 0016).
 
 ```mermaid
 flowchart TD

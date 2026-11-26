@@ -6,7 +6,7 @@ n8n is the trigger layer: a webhook in n8n starts an ECVT run and answers with
 its result. n8n does not run ECVT itself; it calls `ecvt serve` on the host.
 
 ```
-curl → n8n webhook /webhook/ecvt-run → POST http://host.docker.internal:8090/runs
+curl → n8n webhook /webhook/ecvt-run → POST http://host.docker.internal:8090/runs?wait=true
      → ecvt serve → ecvt run --plugin … --report → JSON result back through n8n
 ```
 
@@ -21,6 +21,7 @@ python -m ecvt.cli serve --host 0.0.0.0 --port 8090 --base-url http://localhost:
 - `--base-url` is where the target runs. It is the server's setting; a request
   cannot change it.
 - The target (e.g. wallet-api) must be up: `uvicorn app:app --app-dir examples/wallet-api --port 8000`.
+- The same server is the browser UI: open http://localhost:8090/ (it asks for the token once).
 
 ## 2. Start n8n and load the workflow
 
@@ -29,6 +30,9 @@ docker compose up -d n8n           # passes ECVT_TRIGGER_TOKEN from your shell /
 docker compose exec n8n n8n import:workflow --input=/workflows/ecvt-run.json
 docker compose exec n8n n8n publish:workflow --id=ecvtRunWebhook01
 ```
+
+Upgrading from 1.0: re-import the workflow. The 1.1 export calls `/runs?wait=true`;
+the old one calls bare `/runs`, which now answers 202 at once (ADR 0016).
 
 A running n8n registers the published webhook within a minute; until then the
 webhook answers 404 "not registered".
