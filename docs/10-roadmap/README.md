@@ -19,7 +19,7 @@ gate list is complete and `python scripts/gate_check.py Mx` prints PASS.
   in order; catch rate 6/10.
 - **M3 at release candidate (v1.0.0).** Plugin ABC + `rest_api` and `wallet`
   (7 rules) by name (#37, #38, ADR 0013); `ecvt-eval` MCP server, a06 scores
-  through it (#39, ADR 0014 proposed); Dev + Business reports (#42); n8n
+  through it (#39, ADR 0014); Dev + Business reports (#42); n8n
   webhook → `ecvt serve` (#43); landing page with sample reports (#44, video
   deferred by ADR 0015); a03 exhaustion fixed (#45); live-target fixes from
   Swagger Petstore (#46). Catch rate, M1 chain + wallet: median 7/10 (6–8).
