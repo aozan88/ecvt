@@ -69,6 +69,36 @@ def _stage(label: str, index: int, total: int) -> None:
     print(f"[{index}/{total}] {label}", flush=True)
 
 
+class Progress:
+    """Which step a run is on, as a small JSON file (`--status-file`, ADR 0016).
+
+    `ecvt serve` points this at the run's directory and the browser UI polls it.
+    The printed `[n/3]` lines stay for people; this file is the contract for
+    programs, so a reworded line cannot break the progress display. Each write
+    replaces the whole file, so a reader never sees half of one. Without a path
+    every call is a no-op.
+    """
+
+    def __init__(self, path: str | Path | None, steps: list[str]) -> None:
+        self.path = Path(path) if path else None
+        self.steps = steps
+
+    def at(self, step: str, detail: str = "") -> None:
+        self._write({"current": step, "detail": detail})
+
+    def finish(self) -> None:
+        self._write({"current": None, "detail": "done"})
+
+    def _write(self, fields: dict[str, Any]) -> None:
+        if self.path is None:
+            return
+        payload = {"steps": self.steps, **fields, "updated_at": datetime.now(UTC).isoformat()}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        os.replace(tmp, self.path)
+
+
 def run_chain(args: argparse.Namespace) -> int:
     # Resolved before anything is spent: an unknown or unimplemented plugin
     # must fail here, not after a paid scenario-generation call.
@@ -84,10 +114,13 @@ def run_chain(args: argparse.Namespace) -> int:
     total = 3
     started = time.perf_counter()
     usage = Usage(model=args.model)
+    steps = ["generate", "execute", "evaluate"] + (["report"] if args.report or args.record else [])
+    progress = Progress(args.status_file, steps)
 
     # --- 1. generate (or reuse)
     if args.scenarios:
         _stage(f"reusing scenarios from {args.scenarios}", 1, total)
+        progress.at("generate", "reusing scenarios")
         scenarios = read_scenarios_jsonl(args.scenarios)
         # A run directory stands on its own: the reports read the scenarios from
         # it, so a reused set is copied in rather than referenced.
@@ -99,6 +132,7 @@ def run_chain(args: argparse.Namespace) -> int:
         from ecvt.llm import StructuredCallError
 
         _stage("generating scenarios", 1, total)
+        progress.at("generate", "generating scenarios")
         try:
             scenario_set, result = generate_scenario_set(
                 spec_path=_spec_path(args.target),
@@ -120,6 +154,7 @@ def run_chain(args: argparse.Namespace) -> int:
 
     # --- 2. execute
     _stage(f"running against {args.base_url} via {plugin.name}", 2, total)
+    progress.at("execute", f"{len(scenarios)} scenarios via {plugin.name}")
     records = asyncio.run(plugin.execute(scenarios))
     write_executions_jsonl(executions_path, records)
     outcomes: dict[str, int] = {}
@@ -130,7 +165,9 @@ def run_chain(args: argparse.Namespace) -> int:
     # --- 3. evaluate
     from agents.a06_evaluation.agent import EvalServerError, score_scenarios
 
-    _stage("scoring" + (" (rules only)" if args.no_judge else " (rules + judge)"), 3, total)
+    scoring = "rules only" if args.no_judge else "rules + judge"
+    _stage(f"scoring ({scoring})", 3, total)
+    progress.at("evaluate", scoring)
     try:
         scores, judge_usage = score_scenarios(
             scenarios,
@@ -176,7 +213,9 @@ def run_chain(args: argparse.Namespace) -> int:
     print(f"      {elapsed:.1f}s → {out_dir}/")
 
     if args.report or args.record:
+        progress.at("report", "Dev + Business reports")
         _write_report(args, out_dir)
+    progress.finish()
     return 0
 
 
@@ -292,6 +331,7 @@ def unsupported_with_manager(
 
 def run_via_manager(args: argparse.Namespace) -> int:
     """M2-T4: the same run, routed through the Manager (intent -> plan -> 4 stages)."""
+    from agents.a01_manager.agent import STAGES as MANAGER_STAGES
     from agents.a01_manager.agent import new_run_id, run_manager
 
     # Same fail-fast as run_chain: the Manager would otherwise spend a02 and a03
@@ -303,6 +343,10 @@ def run_via_manager(args: argparse.Namespace) -> int:
     run_id = new_run_id()
     started = time.perf_counter()
     print(f"[manager] {run_id}", flush=True)
+    stages = list(MANAGER_STAGES)
+    report = args.report or args.record
+    progress = Progress(args.status_file, ["intent", *stages] + (["report"] if report else []))
+    progress.at("intent", "Manager reads the request")
 
     async def drive() -> None:
         async for msg in run_manager(
@@ -313,7 +357,10 @@ def run_via_manager(args: argparse.Namespace) -> int:
         ):
             for block in getattr(msg, "content", None) or []:
                 if type(block).__name__ == "ToolUseBlock":
-                    print(f"      -> {block.name.split('__')[-1]}", flush=True)
+                    tool = block.name.split("__")[-1]
+                    print(f"      -> {tool}", flush=True)
+                    if (stage := tool.removeprefix("run_")) in stages:
+                        progress.at(stage, tool)
 
     asyncio.run(drive())
     state = json.loads((runs_dir / run_id / "state.json").read_text(encoding="utf-8"))
@@ -324,9 +371,13 @@ def run_via_manager(args: argparse.Namespace) -> int:
     print(f"      {state['status']} in {time.perf_counter() - started:.1f}s → {out_dir}/")
     if (state["result"] or {}).get("summary"):
         print(f"      {state['result']['summary']}")
-    if state["status"] == "completed" and (args.report or args.record):
+    if state["status"] != "completed":
+        return 1
+    if args.report or args.record:
+        progress.at("report", "Dev + Business reports")
         _write_report(args, out_dir)
-    return 0 if state["status"] == "completed" else 1
+    progress.finish()
+    return 0
 
 
 def _write_report(args: argparse.Namespace, out_dir: Path) -> None:
@@ -443,6 +494,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--max-budget", type=float, default=2.0, help="USD cap on the Manager's own turns."
+    )
+    run.add_argument(
+        "--status-file",
+        help="Keep the current step in this JSON file while the run goes (`ecvt serve` reads it).",
     )
     run.add_argument(
         "--record",

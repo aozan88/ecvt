@@ -327,6 +327,43 @@ def test_run_without_report_flag_writes_no_report(live_target, scenarios_file, t
     assert not (out / "report.md").exists()
 
 
+def test_status_file_tracks_the_steps_and_ends_done(live_target, scenarios_file, tmp_path):
+    """`--status-file` is what `ecvt serve` and its UI read (ADR 0016)."""
+    out = tmp_path / "artifacts"
+    status = tmp_path / "status.json"
+    args = ["run", "--scenarios", str(scenarios_file), "--base-url", live_target,
+            "--out-dir", str(out), "--no-judge", "--report", "--status-file", str(status)]  # fmt: skip
+    assert main(args) == 0
+    final = json.loads(status.read_text())
+    assert final["steps"] == ["generate", "execute", "evaluate", "report"]
+    assert final["current"] is None and final["detail"] == "done" and final["updated_at"]
+    assert not status.with_name("status.json.tmp").exists()
+
+
+def test_status_file_stops_at_the_step_that_failed(scenarios_file, tmp_path, monkeypatch):
+    from ecvt import cli
+
+    def no_scores(*args, **kwargs):
+        return [], None
+
+    monkeypatch.setattr("agents.a06_evaluation.agent.score_scenarios", no_scores)
+    status = tmp_path / "status.json"
+    args = ["run", "--scenarios", str(scenarios_file), "--base-url", "http://127.0.0.1:9",
+            "--timeout", "0.5", "--out-dir", str(tmp_path / "o"), "--no-judge",
+            "--status-file", str(status)]  # fmt: skip
+    assert cli.main(args) == 1
+    stuck = json.loads(status.read_text())
+    assert stuck["steps"] == ["generate", "execute", "evaluate"] and stuck["current"] == "evaluate"
+
+
+def test_progress_without_a_path_writes_nothing(tmp_path, monkeypatch):
+    from ecvt.cli import Progress
+
+    monkeypatch.chdir(tmp_path)
+    Progress(None, ["a"]).at("a")
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_report_on_target_without_baseline(live_target, scenarios_file, tmp_path, capsys):
     """A target with no ground truth is normal, not an error."""
     bare = tmp_path / "bare-target"
