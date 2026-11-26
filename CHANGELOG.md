@@ -11,8 +11,11 @@ trigger and the landing page. ECVT runs against any OpenAPI target through a
 plugin, scores through its own MCP server, and answers a webhook with a release
 recommendation.
 
-Gate G3 at release: see the release PR for the full run. The demo video is
-deferred (ADR 0015). Catch rate on the demo target, M1 chain with the wallet
+Gate G3: 13 of 14 checks pass before the tag, the fourteenth being the tag
+itself. Evals: a03 86.7% pooled over 3 runs (26/30), a05 100% (10/10), a06 100%
+over 3 runs (45/45); pytest 340; both plugins, ecvt-eval over stdio, the n8n
+webhook and the landing page verified live. The demo video is deferred
+(ADR 0015). Catch rate on the demo target, M1 chain with the wallet
 plugin: median 7/10 over five runs (range 6–8). First run against a real
 third-party API (Swagger Petstore v3) found four defects, each confirmed by hand.
 
