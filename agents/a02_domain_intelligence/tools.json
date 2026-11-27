@@ -61,17 +61,6 @@
               "minLength": 3,
               "type": "string"
             },
-            "identifier": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Name of the identifying field, or null if the spec exposes none."
-            },
             "fields": {
               "description": "Fields found in the spec. Empty if the entity is only named by a path; never invent fields.",
               "items": {
@@ -95,7 +84,6 @@
             "id",
             "name",
             "description",
-            "identifier",
             "fields",
             "evidence"
           ],
@@ -107,6 +95,10 @@
             "name": {
               "description": "Property name exactly as in the spec (case preserved).",
               "type": "string"
+            },
+            "is_identifier": {
+              "description": "True for the one field that identifies an instance (e.g. 'id'); false for every other field.",
+              "type": "boolean"
             },
             "type": {
               "description": "JSON Schema type; 'unknown' if the spec gives none.",
@@ -156,6 +148,7 @@
           },
           "required": [
             "name",
+            "is_identifier",
             "type",
             "writable",
             "bounds",
@@ -534,6 +527,19 @@
               "minLength": 3,
               "type": "string"
             },
+            "gap_question": {
+              "anyOf": [
+                {
+                  "maxLength": 300,
+                  "minLength": 3,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When status is not_specified or contradictory: the question the spec leaves open, phrased as a question (it is filed as a gap for you). null otherwise."
+            },
             "evidence": {
               "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
               "items": {
@@ -549,6 +555,7 @@
           "required": [
             "status",
             "detail",
+            "gap_question",
             "evidence"
           ],
           "type": "object"

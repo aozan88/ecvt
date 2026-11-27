@@ -32,7 +32,9 @@ a task asking for those is declined.
 4. **Validation with the spec as context.** Pydantic checks the shape (`extra="forbid"`,
    no defaults), then the cross-checks: every inventory operation covered once, method and
    path match, every evidence pointer exists in the spec, every `not_specified` verdict and
-   unbounded field is covered by a gap. On failure the error text goes back to the model
+   unbounded field is covered by a gap. Since v2 (ADR 0021) an open verdict carries its own
+   `gap_question`, filed as a gap by the schema, and the identifier is an `is_identifier`
+   flag on a field, so neither rule can be broken by naming something that is not there. On failure the error text goes back to the model
    once as a correction (`max_attempts=2`).
 
 ## 4. Contract rules (what keeps the output honest)

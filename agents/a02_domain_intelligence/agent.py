@@ -141,8 +141,8 @@ def build_domain_model(
     """Run a02 on one spec.
 
     max_attempts=3, not 2: DomainModel validates in two layers and Pydantic
-    reports them in sequence, not together. A field error (an entity whose
-    identifier is not among its fields) stops validation before the model-level
+    reports them in sequence, not together. A field error (in v1, an entity whose
+    identifier was not among its fields; v2 makes it a flag, ADR 0021) stops validation before the model-level
     validator runs, so the cross-field rules (a `not_specified` verdict needs a
     matching gap) only become visible once the field error is fixed. Two
     attempts could surface the second layer but never answer it — measured on
