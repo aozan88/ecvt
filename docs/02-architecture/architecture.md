@@ -44,7 +44,7 @@ System-specific knowledge lives in `plugins/`, never in an agent (root
 | Evaluation (a06) | Rule dimension from ecvt-eval, then LLM-as-judge on what rules cannot decide; folds both into the verdict | Messages API, Haiku (judge) | `agents/a06_evaluation/` |
 | ecvt-eval (MCP server) | `score_response`: generic rule checks plus the plugin's domain rules; `list_rules`. Stdio subprocess of a06, also usable by any MCP client | **none** | `ecvt/eval_server.py`, `ecvt/scoring.py` (ADR 0014) |
 | Plugins | How a kind of target is reached (`execute`) and, optionally, its domain rules (`domain_rules`). Never scores. Registry = directories under `plugins/` | none | `plugins/` (ADRs 0003, 0010, 0013) |
-| Reports | Dev + Business reports (Markdown + HTML) from one run directory; no ground truth, so they work for any target. The demo's catch rate (`report.md`) is separate and the only reader of ground truth. Code, not the a08 agent (v1.2) | **none** | `ecvt/audience_reports.py`, `ecvt/reporting.py` |
+| Reports | Dev + Business reports (Markdown + HTML) from one run directory; no ground truth, so they work for any target. The demo's catch rate (`report.md`) is separate and the only reader of ground truth. Code, not the a08 agent (v1.3, M6) | **none** | `ecvt/audience_reports.py`, `ecvt/reporting.py` |
 | Eval harness + gates | Agent eval datasets, milestone gates | judge calls only | `scripts/eval_runner.py`, `scripts/gate_check.py` |
 
 Model choice: ADR 0005. Why subagents use the Messages API and only the

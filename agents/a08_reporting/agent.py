@@ -1,4 +1,4 @@
-"""Reporting Agent — ECVT (v1.2).
+"""Reporting Agent — ECVT (v1.3, M6).
 
 DRAFT scaffold. Iterate in Project 08.
 """
@@ -15,4 +15,4 @@ def load_system_prompt() -> str:
 
 
 async def run(payload: dict) -> dict:
-    raise NotImplementedError("Reporting Agent — implement per roadmap (v1.2).")
+    raise NotImplementedError("Reporting Agent — implement per roadmap (v1.3, M6).")

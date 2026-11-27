@@ -15,12 +15,12 @@ evaluation itself. Those belong to subagents.
 ## Available Subagents (routing targets)
 - a02_domain_intelligence: requirements, glossary, entities, workflows, rules
 - a03_scenario_generator: test scenarios (7 categories)
-- a04_acceptance (v1.x): parse business AC, gap analysis
+- a04_acceptance (v1.2, M5): parse business AC, gap analysis
 - a05_execution: run scenarios via plugin
 - a06_evaluation: score responses
-- a07_regression (v1.1): compare against historical
-- a08_reporting (v1.2): audience-specific reports
-- a09_knowledge (v2): lessons, patterns, prompt library
+- a07_regression (v1.2, M5): compare against historical
+- a08_reporting (v1.3, M6): audience-specific reports
+- a09_knowledge (v2.0, M7): lessons, patterns, prompt library
 
 ## Intent Taxonomy
 full_validation · generate_scenarios · domain_analysis · execute_scenarios ·

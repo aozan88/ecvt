@@ -98,4 +98,4 @@ chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
   while the target answers `{"id": ...}`; a03 once saved the wrong field (ADR 0012).
 - `system_prompt.md` is 171 lines against a "2 pages" rule and a test bound of 180 —
   the conventions decision is open.
-- Reads OpenAPI only; no prose requirements or acceptance criteria (a04, v1.x).
+- Reads OpenAPI only; no prose requirements or acceptance criteria (a04, v1.2, M5).

@@ -81,6 +81,6 @@ declined whole — the prompt forbids partial compliance. Status: not yet run li
 
 ## 8. Known limitations
 
-- Reads OpenAPI only; prose requirements and acceptance criteria are a04's job (v1.x).
+- Reads OpenAPI only; prose requirements and acceptance criteria are a04's job (v1.2, M5).
 - A very large spec is sent whole; there is no chunking.
 - Eval rubrics depend on the inventory id rule; changing the rule means updating them.

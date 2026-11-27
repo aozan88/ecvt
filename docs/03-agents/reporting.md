@@ -1,4 +1,4 @@
-# Agent Spec — Reporting (08, v1.2)
+# Agent Spec — Reporting (08, v1.3, M6)
 
 > STUB — max 3 pages/agent. Code lives in agents/<NN-name>/.
 

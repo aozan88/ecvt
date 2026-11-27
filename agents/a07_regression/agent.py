@@ -1,4 +1,4 @@
-"""Regression Agent — ECVT (v1.1).
+"""Regression Agent — ECVT (v1.2, M5).
 
 DRAFT scaffold. Iterate in Project 07.
 """
@@ -15,4 +15,4 @@ def load_system_prompt() -> str:
 
 
 async def run(payload: dict) -> dict:
-    raise NotImplementedError("Regression Agent — implement per roadmap (v1.1).")
+    raise NotImplementedError("Regression Agent — implement per roadmap (v1.2, M5).")
