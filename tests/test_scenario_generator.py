@@ -144,19 +144,25 @@ def test_tool_schema_generated_from_pydantic():
     assert {"HttpStep", "Expectation"} <= set(defs)
 
     item = schema["properties"]["scenarios"]["items"]
-    assert [b["$ref"].split("/")[-1] for b in item["oneOf"]] == [
+    # Strict schemas take `anyOf`, not `oneOf` + discriminator (ADR 0019); the
+    # branches stay apart by their `category` const / enum.
+    assert [b["$ref"].split("/")[-1] for b in item["anyOf"]] == [
         "StressScenarioDraft",
         "AdversarialScenarioDraft",
         "PlainScenarioDraft",
     ]
-    assert item["discriminator"]["propertyName"] == "category"
+    routed = {defs["StressScenarioDraft"]["properties"]["category"]["const"],
+              defs["AdversarialScenarioDraft"]["properties"]["category"]["const"],
+              *defs["PlainScenarioDraft"]["properties"]["category"]["enum"]}  # fmt: skip
     # Every category routes somewhere, so no category can fall between branches.
-    assert set(item["discriminator"]["mapping"]) == {c.value for c in ALL_CATEGORIES}
+    assert routed == {c.value for c in ALL_CATEGORIES}
 
     for name in ("StressScenarioDraft", "AdversarialScenarioDraft"):
         assert {"repeat", "concurrency"} <= set(defs[name]["required"]), name
-    assert defs["StressScenarioDraft"]["properties"]["concurrency"]["minimum"] == 2
-    assert defs["AdversarialScenarioDraft"]["properties"]["repeat"]["minimum"] == 1
+    # Bounds a strict grammar cannot carry are stated in the description and
+    # enforced by the Pydantic validator.
+    assert "minimum: 2" in defs["StressScenarioDraft"]["properties"]["concurrency"]["description"]
+    assert "minimum: 1" in defs["AdversarialScenarioDraft"]["properties"]["repeat"]["description"]
 
     plain = defs["PlainScenarioDraft"]["properties"]
     assert "repeat" not in plain and "concurrency" not in plain
@@ -165,6 +171,61 @@ def test_tool_schema_generated_from_pydantic():
     for name in ("StressScenarioDraft", "AdversarialScenarioDraft"):
         assert list(defs[name]["properties"])[:3] == ["category", "repeat", "concurrency"], name
     assert next(iter(plain)) == "category"
+
+
+def test_tool_is_strict_and_within_the_api_limits():
+    """M4-T1 / ADR 0019: `strict: true` with a schema the API will compile."""
+    from ecvt.llm import strict_counts
+
+    tool = sg.build_tool()
+    assert tool["strict"] is True
+    counts = strict_counts(tool["input_schema"])
+    assert counts["optional"] == 0  # API limit: 24 per request
+    assert counts["union"] <= 16  # API limit: 16 per request
+
+    def objects(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                yield node
+            for v in node.values():
+                yield from objects(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from objects(v)
+
+    for obj in objects(tool["input_schema"]):
+        assert obj["additionalProperties"] is False
+        assert set(obj["required"]) == set(obj["properties"])
+    text = json.dumps(tool)
+    for keyword in ('"oneOf"', '"discriminator"', '"default"', '"minimum"', '"maximum"'):
+        assert keyword not in text, keyword
+
+
+def test_wire_step_has_no_free_form_object():
+    """A strict grammar can only emit `{}` for an object with unlisted keys, so
+    body / query / headers / save travel as JSON text and name/value lists."""
+    step = sg.build_tool()["input_schema"]["$defs"]["HttpStep"]["properties"]
+    assert step["body"]["type"] == "string"
+    for key in ("query", "headers", "save"):
+        assert step[key]["type"] == "array", key
+        assert step[key]["items"]["$ref"].endswith("/WireField"), key
+
+
+def test_few_shot_matches_the_strict_schema_and_round_trips():
+    """The example in system_prompt.md is written in the wire form and is valid
+    against the very schema the model is held to."""
+    import jsonschema
+
+    from ecvt.schema import ScenarioSetDraft, from_wire
+
+    prompt = sg.load_system_prompt()
+    example = json.loads(prompt[prompt.index("<output>") + 8 : prompt.index("</output>")])
+    jsonschema.validate(example, sg.build_tool()["input_schema"])
+    draft = ScenarioSetDraft.model_validate(from_wire(example))
+    loan = draft.scenarios[0].action
+    assert loan.body == {"member_id": "{borrower}", "title_id": "{item}", "days": 36500}
+    assert draft.scenarios[0].setup[0].save == {"borrower": "id"}
+    assert draft.scenarios[0].expectation.probes[0].body is None
 
 
 def test_committed_tools_json_matches_generated_schema():
@@ -410,7 +471,9 @@ def test_prompt_states_per_category_quota():
     for category in ALL_CATEGORIES:
         assert f"- {category.value}: 2" in prompt
     assert "14 in total" in prompt
-    assert "not a string containing one" in prompt
+    # Strict sampling (ADR 0019) makes `scenarios` an array; the prompt no
+    # longer has to plead for one.
+    assert "not a string containing one" not in prompt
 
 
 def test_text_only_response_is_retried():
@@ -586,3 +649,66 @@ def test_different_rejections_keep_correcting():
     client = FakeClient([first, second, tool_use(full_payload())])
     sg.generate_scenario_set(spec_path=WALLET_SPEC, target="examples/wallet-api", client=client)
     assert len(client.messages.calls[2]["messages"]) == 3
+
+
+# --- strict wire form (M4-T1, ADR 0019) --------------------------------------
+
+
+def to_wire(payload: dict[str, Any]) -> dict[str, Any]:
+    """`full_payload()` as the strict tool returns it: every step field present,
+    the body as JSON text, maps as name/value lists."""
+
+    def step(s: dict[str, Any]) -> dict[str, Any]:
+        def pairs(m: dict[str, str] | None) -> list[dict[str, str]]:
+            return [{"name": k, "value": v} for k, v in (m or {}).items()]
+
+        return {
+            "name": s["name"],
+            "method": s["method"],
+            "path": s["path"],
+            "body": json.dumps(s["body"]) if s.get("body") is not None else "",
+            "query": pairs(s.get("query")),
+            "headers": pairs(s.get("headers")),
+            "save": pairs(s.get("save")),
+        }
+
+    out = json.loads(json.dumps(payload))
+    for sc in out["scenarios"]:
+        sc["setup"] = [step(x) for x in sc["setup"]]
+        sc["action"] = step(sc["action"])
+        sc["expectation"]["probes"] = [step(x) for x in sc["expectation"]["probes"]]
+        if sc["category"] not in ("stress", "adversarial"):
+            sc.pop("repeat", None)
+            sc.pop("concurrency", None)
+    return out
+
+
+def test_wire_payload_is_valid_against_the_strict_schema():
+    import jsonschema
+
+    jsonschema.validate(to_wire(full_payload()), sg.build_tool()["input_schema"])
+
+
+def test_generates_from_the_wire_form():
+    client = FakeClient([tool_use(to_wire(full_payload()))])
+    scenario_set, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+    assert result.attempts == 1
+    first = scenario_set.scenarios[0]
+    assert first.setup[0].body == {"owner": "alice", "initial_balance": 50.0}
+    assert first.setup[0].save == {"src_id": "id"}
+    assert first.action.query is None and first.expectation.probes[0].body is None
+    assert client.messages.calls[0]["tools"][0]["strict"] is True
+
+
+def test_body_that_is_not_json_goes_back_as_a_correction():
+    broken = to_wire(full_payload())
+    broken["scenarios"][0]["action"]["body"] = '{"amount": 500.0, "from_account": '
+    client = FakeClient([tool_use(broken), tool_use(to_wire(full_payload()))])
+    _, result = sg.generate_scenario_set(
+        spec_path=WALLET_SPEC, target="examples/wallet-api", client=client
+    )
+    assert result.attempts == 2
+    text = correction_text(client)
+    assert "sc-001 action.body is not valid JSON" in text and "Field required" not in text
