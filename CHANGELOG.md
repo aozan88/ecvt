@@ -5,6 +5,32 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **DomainModel v2: a02's cross-field rules are held by structure** (ADR 0021).
+  `EntityField.is_identifier` replaces `Entity.identifier`, so an identifier can no
+  longer name a field the entity does not have; `Verdict.gap_question` lets an open
+  verdict carry its own question, which the schema files under `gaps` (one per
+  distinct question). Few-shot, SKILL, a02 rubrics and spec doc follow; a02's
+  `tools.json` is now checked against `build_tools()`.
+- **Operation parameters in the DomainModel** (M4-T2): `Operation.parameters` holds
+  each declared parameter with location, type, required, bounds and constraints; an
+  undeclared one is rejected. di-010's rubric reads the declared bound from it.
+
+### Measured
+- **a02 generation reliability**, wallet-api, `claude-haiku-5-5`, 8 generations each,
+  2026-11-27:
+
+  | | First attempt | Mean attempts | Cost / generation |
+  |---|---|---|---|
+  | `main` (v1) | 1/8 | 2.5 | $0.0085 |
+  | v2 structure | **6/8** | **1.25** | **$0.0039** |
+  | v2 + parameters | 4/8 | 1.5 | $0.0046 |
+
+  With parameters the larger output brought `entities` sent as broken JSON text
+  (2 of 8). a02 eval, 3 runs: 86.1% pooled (31/36; 92 · 83 · 83) against 83.3% at
+  G2; di-004 stable fail as before, di-008 flaky. Strict tool use on the whole
+  DomainModel was tried and does not compile ("compiled grammar is too large").
+
 ### Fixed
 - **A correction turn answered only one of several tool calls.** When a reply
   carried two `tool_use` blocks, `structured_call`'s retry sent a `tool_result`
