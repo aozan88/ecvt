@@ -601,8 +601,10 @@ def adapt_manager(case: EvalCase, ctx: AdapterContext) -> Invocation:
     else:
         asyncio.run(_drive_agent_manager(mgr, request, run_id, runs_dir, setup, trace, cost))
     state = store.load(run_id)
+    # artifact_ref is in the view so a rubric can check that manager_output's refs
+    # match what the stages wrote; without it the grader had nothing to compare.
     stages = {
-        s: {"status": state["stages"][s]["status"], "attempts": state["stages"][s]["attempts"]}
+        s: {k: state["stages"][s][k] for k in ("status", "attempts", "artifact_ref")}
         for s in state["plan"]
     }
     view = {"tool_calls": trace, "intent": state["intent"], "stages": stages,
