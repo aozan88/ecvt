@@ -76,8 +76,9 @@ parameter" and 49 of 70 executions failed setup.
 Bar ≥ 80%, **pooled over 3 runs** (`eval_runner --runs 3`, G3-6): a single run is one
 draw — the same code has read 90% and 70%.
 
-Generation reliability, 24 generations per arm (`scripts/measure_a03.py`, final prompt):
-23/24 valid sets, 15/24 on the first attempt, $0.0045 per run. Catch rate on the M1
+Generation reliability (`scripts/measure_a03.py`, spec-only): strict tool, 8 generations —
+8/8 valid, 8/8 on the first attempt, `Field required` 0/8, $0.0036 per generation; the
+non-strict `main` read 4/8 on the first attempt the same day (M4-T1, ADR 0019). Catch rate on the M1
 chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
 
 ## 7. Dependencies and limits
@@ -94,8 +95,10 @@ chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
   fix failed all four attempts with one identical error each time (`field_required`,
   or `scenarios` sent as broken JSON text). Since then the correction names a JSON
   syntax error and where it is, and two identical rejections in a row restart from
-  the original request: 24/24 valid, 0 exhausted (CHANGELOG, Measured). The
-  omission itself remains — `Field required` in 8 of 24 generations.
+  the original request: 24/24 valid, 0 exhausted (CHANGELOG, Measured). Since M4-T1
+  the tool is strict, so the omission itself cannot occur (0/8, ADR 0019); a body
+  whose JSON text does not parse is the one wire-form failure left, counted as
+  `body_json` (0/8 so far).
 - With the DomainModel on, the account id is named `account_id` throughout a02's output
   while the target answers `{"id": ...}`; a03 once saved the wrong field (ADR 0012).
 - `system_prompt.md` is 177 lines against a "2 pages" rule and a test bound of 180 —
