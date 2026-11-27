@@ -446,6 +446,23 @@ def _stuck(failures: list[str]) -> bool:
     return last == previous
 
 
+FORCED_TOOL_UNSUPPORTED = (
+    "claude-opus-5-5", "claude-sonnet-5-5",
+    "claude-fable-5-1", "claude-fable-5-2", "claude-mythos-5-1", "claude-mythos-5-2",
+)  # fmt: skip
+"""Models that answer a forced `tool_choice` (`tool` / `any`) with a 400. On these
+the call uses `auto` and relies on the prompt plus `strict: true`; a reply with no
+tool call is a failed attempt like any other, so the retry loop covers it."""
+
+
+def tool_choice_for(model: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    if model.startswith(FORCED_TOOL_UNSUPPORTED):
+        return {"type": "auto"}
+    if len(tools) == 1:
+        return {"type": "tool", "name": tools[0]["name"]}
+    return {"type": "any"}
+
+
 def structured_call(
     *,
     system: str | list[str],
@@ -457,6 +474,7 @@ def structured_call(
     max_tokens: int = 8192,
     max_attempts: int = 3,
     cache_system: bool = True,
+    effort: str | None = None,
 ) -> StructuredResult:
     """Call Claude, force a tool call, and return input that `validate` accepted.
 
@@ -484,12 +502,9 @@ def structured_call(
 
     tools = [tool] if isinstance(tool, dict) else list(tool)
     names = {t["name"] for t in tools}
-    if len(tools) == 1:
-        tool_choice: dict[str, Any] = {"type": "tool", "name": tools[0]["name"]}
-        label = tools[0]["name"]
-    else:
-        tool_choice = {"type": "any"}
-        label = " or ".join(t["name"] for t in tools)
+    tool_choice = tool_choice_for(model, tools)
+    label = " or ".join(t["name"] for t in tools)
+    extra: dict[str, Any] = {"output_config": {"effort": effort}} if effort else {}
     validators = validate if isinstance(validate, dict) else dict.fromkeys(names, validate)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
@@ -504,6 +519,7 @@ def structured_call(
             tools=tools,
             tool_choice=tool_choice,
             messages=messages,
+            **extra,
         )
         usage.add_response(response)
 

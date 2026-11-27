@@ -560,7 +560,7 @@ def adapt_manager(case: EvalCase, ctx: AdapterContext) -> Invocation:
     import tempfile
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise Unmeasurable("the Manager needs ANTHROPIC_API_KEY (it runs on the Agent SDK)")
+        raise Unmeasurable("the Manager needs ANTHROPIC_API_KEY (it calls a model in either mode)")
     from agents.a01_manager import agent as mgr
 
     request = case.input.get("request")
@@ -575,22 +575,31 @@ def adapt_manager(case: EvalCase, ctx: AdapterContext) -> Invocation:
     trace: list[dict[str, Any]] = []
     cost: list[float] = []
 
-    async def drive() -> None:
-        async for msg in mgr.run_manager(
+    if os.environ.get("ECVT_MANAGER_MODE", "planner") == "planner":
+        # ADR 0020: one model call, then code. The trace uses the agent loop's
+        # tool names for the same steps, so one rubric reads either mode.
+        from agents.a01_manager.planner import run_planned
+
+        def on_event(kind: str, payload: dict[str, Any]) -> None:
+            if kind == "plan":
+                trace.append({"tool": "plan_run", "input": {"intent": payload["intent"],
+                              "next_action": payload["next_action"]}})  # fmt: skip
+            elif kind == "stage_start":
+                trace.append({"tool": f"run_{payload['stage']}",
+                              "input": {"attempt": payload["attempt"]}})  # fmt: skip
+            elif kind == "done":
+                trace.append({"tool": "manager_output", "input": payload})
+
+        state = run_planned(
             request,
             run_id=run_id,
             runs_dir=runs_dir,
             runners=_manager_stub_runners(setup.get("stub_runners") or {}),
-            max_budget_usd=MANAGER_EVAL_BUDGET_USD,
-        ):
-            for block in getattr(msg, "content", None) or []:
-                if type(block).__name__ == "ToolUseBlock":
-                    name = block.name.removeprefix(f"mcp__{mgr.SERVER}__")
-                    trace.append({"tool": name, "input": block.input})
-            if getattr(msg, "total_cost_usd", None) is not None:
-                cost.append(float(msg.total_cost_usd))
-
-    asyncio.run(drive())
+            on_event=on_event,
+        )
+        cost.append(float((state.get("manager_session") or {}).get("total_cost_usd") or 0))
+    else:
+        asyncio.run(_drive_agent_manager(mgr, request, run_id, runs_dir, setup, trace, cost))
     state = store.load(run_id)
     stages = {
         s: {"status": state["stages"][s]["status"], "attempts": state["stages"][s]["attempts"]}
@@ -599,6 +608,26 @@ def adapt_manager(case: EvalCase, ctx: AdapterContext) -> Invocation:
     view = {"tool_calls": trace, "intent": state["intent"], "stages": stages,
             "manager_output": state["result"], "cost_usd": cost[-1] if cost else None}
     return Invocation(text=_render(view), obj=state["result"])
+
+
+async def _drive_agent_manager(
+    mgr: Any, request: str, run_id: str, runs_dir: Path, setup: dict[str, Any],
+    trace: list[dict[str, Any]], cost: list[float],
+) -> None:  # fmt: skip
+    """The M2 agent loop (`ECVT_MANAGER_MODE=agent`): its SDK messages, as a trace."""
+    async for msg in mgr.run_manager(
+        request,
+        run_id=run_id,
+        runs_dir=runs_dir,
+        runners=_manager_stub_runners(setup.get("stub_runners") or {}),
+        max_budget_usd=MANAGER_EVAL_BUDGET_USD,
+    ):
+        for block in getattr(msg, "content", None) or []:
+            if type(block).__name__ == "ToolUseBlock":
+                name = block.name.removeprefix(f"mcp__{mgr.SERVER}__")
+                trace.append({"tool": name, "input": block.input})
+        if getattr(msg, "total_cost_usd", None) is not None:
+            cost.append(float(msg.total_cost_usd))
 
 
 def _inline_scenario(case: EvalCase) -> Any:

@@ -248,6 +248,128 @@ def precondition(state: dict[str, Any], stage: str) -> str | None:
     return None
 
 
+def apply_intent(
+    store: StateStore, state: dict[str, Any], args: dict[str, Any], plugins: list[str]
+) -> dict[str, Any]:
+    """Record a classification and derive next_action and plan from it — in code.
+
+    Shared by the agent loop's record_intent tool and the planner (ADR 0020): the
+    model only labels the request; which stages run, and whether a slot is
+    missing or invalid, is decided here."""
+    intent = args["intent"]
+    slots = {
+        k: v.strip()
+        for k, v in (args.get("slots") or {}).items()
+        if isinstance(v, str) and v.strip()
+    }
+    invalid = []
+    if "plugin" in slots and slots["plugin"] not in plugins:
+        invalid.append("plugin")
+        slots.pop("plugin")
+    missing = [s for s in REQUIRED_SLOTS[intent] if s not in slots]
+    reason = args.get("out_of_scope_reason")
+    if intent == "out_of_scope":
+        next_action = "reject"
+        reason = reason or "wrong_domain"
+    elif missing or invalid or args["confidence"] < MIN_CONFIDENCE:
+        next_action = "ask_user"
+    elif intent == "run_status":
+        next_action = "answer_status"
+    else:
+        next_action = "dispatch"
+    plan = list(INTENT_PLAN[intent]) if next_action == "dispatch" else []
+    state["intent"] = {
+        "name": intent,
+        "confidence": args["confidence"],
+        "rationale": args["rationale"],
+        "slots": slots,
+        "out_of_scope_reason": reason if intent == "out_of_scope" else None,
+        "next_action": next_action,
+        "missing_slots": missing,
+        "invalid_slots": invalid,
+        "recorded_at": _now(),
+    }
+    state["plan"] = plan
+    for s in plan:
+        state["stages"][s]["status"] = "pending"
+    state["status"] = "classified"
+    store.save(state)
+    return {
+        "next_action": next_action,
+        "plan": [{"stage": s, "subagent": STAGE_SUBAGENT[s]} for s in plan],
+        "missing_slots": missing,
+        "invalid_slots": invalid,
+        "available_plugins": plugins,
+    }
+
+
+def begin_stage(store: StateStore, state: dict[str, Any], stage: str) -> dict[str, Any]:
+    """Mark a stage running (one more attempt) and return its runner's input.
+
+    The caller has checked precondition(); shared by both Manager modes."""
+    rec = state["stages"][stage]
+    rec.update(status="running", attempts=rec["attempts"] + 1, started_at=_now(), error=None)
+    state["status"] = "running"
+    store.save(state)
+    plan = state["plan"]
+    return {
+        "run_id": state["run_id"],
+        "stage": stage,
+        "slots": state["intent"]["slots"],
+        "upstream": {
+            p: store.resolve(state["stages"][p]["artifact_ref"])
+            for p in plan[: plan.index(stage)]
+        },
+    }
+
+
+def finish_stage(
+    store: StateStore,
+    state: dict[str, Any],
+    stage: str,
+    *,
+    out: dict[str, Any] | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    """Record a stage's outcome and return the stage result the Manager sees.
+
+    A StageError is retryable only if it says so and an attempt is left; any
+    other exception is a runner crash and never retried."""
+    rec = state["stages"][stage]
+    if isinstance(error, StageError):
+        rec.update(
+            status="failed",
+            error={
+                "message": str(error),
+                "retryable": error.retryable and rec["attempts"] < MAX_ATTEMPTS,
+            },
+        )
+    elif error is not None:
+        rec.update(
+            status="failed",
+            error={"message": f"{type(error).__name__}: {error}", "retryable": False},
+        )
+    else:
+        assert out is not None
+        rec.update(
+            status="succeeded",
+            artifact_ref=store.write_artifact(state["run_id"], stage, out["artifact"]),
+            summary=str(out.get("summary", ""))[:500],
+            metrics=out.get("metrics", {}),
+            usage=out.get("usage", {}),
+        )
+    rec["finished_at"] = _now()
+    store.save(state)
+    return {
+        "stage": stage,
+        "status": rec["status"],
+        "attempt": rec["attempts"],
+        "artifact_ref": rec["artifact_ref"],
+        "summary": rec["summary"],
+        "error": rec["error"],
+    }
+
+
 def build_tools(
     store: StateStore, runners: dict[str, StageRunner], plugins: list[str]
 ) -> list[Any]:
@@ -256,53 +378,7 @@ def build_tools(
         state = store.load(args["run_id"])
         if state["intent"] is not None:
             return _reply({"error": "intent_already_recorded"}, is_error=True)
-        intent = args["intent"]
-        slots = {
-            k: v.strip()
-            for k, v in (args.get("slots") or {}).items()
-            if isinstance(v, str) and v.strip()
-        }
-        invalid = []
-        if "plugin" in slots and slots["plugin"] not in plugins:
-            invalid.append("plugin")
-            slots.pop("plugin")
-        missing = [s for s in REQUIRED_SLOTS[intent] if s not in slots]
-        reason = args.get("out_of_scope_reason")
-        if intent == "out_of_scope":
-            next_action = "reject"
-            reason = reason or "wrong_domain"
-        elif missing or invalid or args["confidence"] < MIN_CONFIDENCE:
-            next_action = "ask_user"
-        elif intent == "run_status":
-            next_action = "answer_status"
-        else:
-            next_action = "dispatch"
-        plan = list(INTENT_PLAN[intent]) if next_action == "dispatch" else []
-        state["intent"] = {
-            "name": intent,
-            "confidence": args["confidence"],
-            "rationale": args["rationale"],
-            "slots": slots,
-            "out_of_scope_reason": reason if intent == "out_of_scope" else None,
-            "next_action": next_action,
-            "missing_slots": missing,
-            "invalid_slots": invalid,
-            "recorded_at": _now(),
-        }
-        state["plan"] = plan
-        for s in plan:
-            state["stages"][s]["status"] = "pending"
-        state["status"] = "classified"
-        store.save(state)
-        return _reply(
-            {
-                "next_action": next_action,
-                "plan": [{"stage": s, "subagent": STAGE_SUBAGENT[s]} for s in plan],
-                "missing_slots": missing,
-                "invalid_slots": invalid,
-                "available_plugins": plugins,
-            }
-        )
+        return _reply(apply_intent(store, state, args, plugins))
 
     def stage_tool(stage: str):
         @_spec(f"run_{stage}")
@@ -311,32 +387,17 @@ def build_tools(
             reason = precondition(state, stage)
             if reason:
                 return _reply({"stage": stage, "status": "blocked", "reason": reason})
+            stage_input = begin_stage(store, state, stage)
             rec = state["stages"][stage]
-            rec.update(
-                status="running", attempts=rec["attempts"] + 1, started_at=_now(), error=None
-            )
-            state["status"] = "running"
-            store.save(state)
-
-            plan = state["plan"]
-            stage_input = {
-                "run_id": state["run_id"],
-                "stage": stage,
-                "slots": state["intent"]["slots"],
-                "upstream": {
-                    p: store.resolve(state["stages"][p]["artifact_ref"])
-                    for p in plan[: plan.index(stage)]
-                },
-            }
             try:
                 out = await asyncio.to_thread(runners[stage], stage_input)
             except asyncio.CancelledError:
                 # The caller gave up on this tool call before the stage returned
                 # — in practice the MCP tool-call timeout (see
                 # STAGE_TOOL_TIMEOUT_MS). CancelledError is a BaseException, so
-                # the `except Exception` arm below never saw it and the record
-                # was left status="running". precondition() then answered the
-                # Manager's retry with "already_running", so a run died on a
+                # the `except Exception` arm in finish_stage never saw it and the
+                # record was left status="running". precondition() then answered
+                # the Manager's retry with "already_running", so a run died on a
                 # stage that had been tried once and never retried (two of three
                 # Manager runs, 2026-11-24). Close the record, then re-raise: a
                 # cancellation is reported, never swallowed.
@@ -353,39 +414,9 @@ def build_tools(
                 rec["finished_at"] = _now()
                 store.save(state)
                 raise
-            except StageError as e:
-                rec.update(
-                    status="failed",
-                    error={
-                        "message": str(e),
-                        "retryable": e.retryable and rec["attempts"] < MAX_ATTEMPTS,
-                    },
-                )
-            except Exception as e:  # noqa: BLE001 — any runner crash is a non-retryable stage failure
-                rec.update(
-                    status="failed",
-                    error={"message": f"{type(e).__name__}: {e}", "retryable": False},
-                )
-            else:
-                rec.update(
-                    status="succeeded",
-                    artifact_ref=store.write_artifact(state["run_id"], stage, out["artifact"]),
-                    summary=str(out.get("summary", ""))[:500],
-                    metrics=out.get("metrics", {}),
-                    usage=out.get("usage", {}),
-                )
-            rec["finished_at"] = _now()
-            store.save(state)
-            return _reply(
-                {
-                    "stage": stage,
-                    "status": rec["status"],
-                    "attempt": rec["attempts"],
-                    "artifact_ref": rec["artifact_ref"],
-                    "summary": rec["summary"],
-                    "error": rec["error"],
-                }
-            )
+            except Exception as exc:  # noqa: BLE001 — recorded by finish_stage
+                return _reply(finish_stage(store, state, stage, error=exc))
+            return _reply(finish_stage(store, state, stage, out=out))
 
         return run_stage
 

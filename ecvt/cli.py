@@ -30,7 +30,7 @@ from typing import Any
 
 from agents.a06_evaluation.agent import DEFAULT_JUDGE_PARALLEL
 from ecvt.execution import DEFAULT_BASE_URL
-from ecvt.llm import DEFAULT_SUBAGENT_MODEL, Usage, load_env
+from ecvt.llm import DEFAULT_MANAGER_MODEL, DEFAULT_SUBAGENT_MODEL, Usage, load_env
 from ecvt.reporting import (
     REPO_ROOT,
     TREND_DOC,
@@ -271,6 +271,7 @@ def export_run_files(state: dict[str, Any], runs_dir: Path, elapsed_s: float = 0
         "plugin": (state["intent"]["slots"].get("plugin") if state["intent"] else None)
         or "rest_api",
         "via": "manager",
+        "manager_mode": session.get("mode", "agent"),
         "run_id": state["run_id"],
         "elapsed_s": round(elapsed_s, 3),
         "status": state["status"],
@@ -333,6 +334,7 @@ def run_via_manager(args: argparse.Namespace) -> int:
     """M2-T4: the same run, routed through the Manager (intent -> plan -> 4 stages)."""
     from agents.a01_manager.agent import STAGES as MANAGER_STAGES
     from agents.a01_manager.agent import new_run_id, run_manager
+    from agents.a01_manager.planner import run_planned
 
     # Same fail-fast as run_chain: the Manager would otherwise spend a02 and a03
     # before its execution stage found the plugin unusable.
@@ -342,7 +344,7 @@ def run_via_manager(args: argparse.Namespace) -> int:
     runs_dir = Path(args.out_dir) / "runs"
     run_id = new_run_id()
     started = time.perf_counter()
-    print(f"[manager] {run_id}", flush=True)
+    print(f"[manager:{args.manager_mode}] {run_id}", flush=True)
     stages = list(MANAGER_STAGES)
     report = args.report or args.record
     progress = Progress(args.status_file, ["intent", *stages] + (["report"] if report else []))
@@ -362,7 +364,25 @@ def run_via_manager(args: argparse.Namespace) -> int:
                     if (stage := tool.removeprefix("run_")) in stages:
                         progress.at(stage, tool)
 
-    asyncio.run(drive())
+    def on_event(kind: str, payload: dict[str, Any]) -> None:
+        """Planner mode: the same progress the agent loop's tool calls gave."""
+        if kind == "plan":
+            plan = " → ".join(p["stage"] for p in payload["plan"]) or "-"
+            print(f"      -> plan_run: {payload['intent']} · {payload['next_action']} · {plan}")
+        elif kind == "stage_start":
+            print(f"      -> run_{payload['stage']} (attempt {payload['attempt']})", flush=True)
+            progress.at(payload["stage"], f"run_{payload['stage']}")
+
+    if args.manager_mode == "agent":
+        asyncio.run(drive())
+    else:
+        run_planned(
+            manager_request(args.target, args.plugin),
+            run_id=run_id,
+            runs_dir=runs_dir,
+            model=args.manager_model,
+            on_event=on_event,
+        )
     state = json.loads((runs_dir / run_id / "state.json").read_text(encoding="utf-8"))
     for s in state["plan"]:
         rec = state["stages"][s]
@@ -486,6 +506,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--manager",
         action="store_true",
         help="Route the run through the Manager (M2): intent, plan, then all four stages.",
+    )
+    run.add_argument(
+        "--manager-mode",
+        choices=("planner", "agent"),
+        default="planner",
+        help="planner: one model call labels the request, code runs the stages (ADR 0020). "
+        "agent: the Agent SDK loop delegates each stage (M2).",
+    )
+    run.add_argument(
+        "--manager-model",
+        default=DEFAULT_MANAGER_MODEL,
+        help="Model the planner labels the request with (ECVT_MANAGER_MODEL).",
     )
     run.add_argument(
         "--plugin",
