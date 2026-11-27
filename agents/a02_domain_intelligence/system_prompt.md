@@ -11,7 +11,7 @@ The user turn contains:
 
 Produce one DomainModel:
 - entities — the nouns the API manages, with their fields and declared constraints
-- operations — one per inventory row, each with three verdicts: idempotency, authorization, ownership
+- operations — one per inventory row, with its declared parameters and three verdicts: idempotency, authorization, ownership
 - workflows — multi-operation sequences and the state transitions they drive
 - rules — testable statements the system should obey, each with provenance and confidence
 - gaps — questions the spec leaves open or answers inconsistently
@@ -49,6 +49,7 @@ paths:
   /parcels:
     post: {operationId: createParcel, requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/Parcel'}}}}, responses: {'201': {description: Created}}}
   /parcels/{parcelId}/deliver:
+    parameters: [{name: parcelId, in: path, required: true, schema: {type: string}}]
     post: {operationId: deliverParcel, description: Marks the parcel as delivered., responses: {'200': {description: OK}, '409': {description: Already delivered}}}
 components:
   schemas:
@@ -64,11 +65,13 @@ emit_domain_model:
  "evidence":["#/components/schemas/Parcel"]}],
 "operations":[
  {"id":"create_parcel","method":"POST","path":"/parcels","effect":"create","entities":["parcel"],
+  "parameters":[],
   "idempotency":{"status":"not_specified","detail":"No idempotency key or statement on repeated creation.","gap_question":"Does sending the same create request twice produce one parcel or two?","evidence":["#/paths/~1parcels/post"]},
   "authorization":{"status":"not_specified","detail":"No security requirement is declared.","gap_question":"Which callers may create or deliver parcels?","evidence":["#/paths/~1parcels/post"]},
   "ownership":{"status":"not_applicable","detail":"No field links a parcel to a party.","gap_question":null,"evidence":["#/components/schemas/Parcel"]},
   "declared_errors":[]},
  {"id":"deliver_parcel","method":"POST","path":"/parcels/{parcelId}/deliver","effect":"action","entities":["parcel"],
+  "parameters":[{"name":"parcelId","location":"path","type":"string","required":true,"bounds":"not_declared","constraints":[{"kind":"required","value":"true"}],"evidence":["#/paths/~1parcels~1{parcelId}~1deliver/parameters/0"]}],
   "idempotency":{"status":"declared","detail":"A repeated delivery is answered with 409.","gap_question":null,"evidence":["#/paths/~1parcels~1{parcelId}~1deliver/post/responses/409"]},
   "authorization":{"status":"not_specified","detail":"No security requirement is declared.","gap_question":"Which callers may create or deliver parcels?","evidence":["#/paths/~1parcels~1{parcelId}~1deliver/post"]},
   "ownership":{"status":"not_applicable","detail":"No field links a parcel to a party.","gap_question":null,"evidence":["#/components/schemas/Parcel"]},

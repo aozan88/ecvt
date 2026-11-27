@@ -31,7 +31,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-SCHEMA_VERSION = "2.0"  # v2 (ADR 0021): is_identifier, gap_question
+SCHEMA_VERSION = "2.0"  # v2 (M4-T2, ADR 0021): is_identifier, gap_question, parameters
 
 
 class _Wire(BaseModel):
@@ -154,6 +154,29 @@ class Verdict(_Wire):
     evidence: Evidence
 
 
+class Parameter(_Wire):
+    """A parameter the spec declares for one operation (M4-T2)."""
+
+    name: str = Field(description="Parameter name exactly as in the spec.")
+    location: Literal["path", "query", "header", "cookie"] = Field(description="The parameter's `in`.")
+    type: Literal["string", "integer", "number", "boolean", "array", "object", "unknown"] = Field(
+        description="JSON Schema type of its schema; 'unknown' if the spec gives none.")
+    required: bool = Field(description="As declared; path parameters are always required.")
+    bounds: Literal["declared", "partial", "not_declared", "not_applicable"] = Field(
+        description="Same scale as entity fields: declared = both ends constrained, partial = one "
+                    "end, not_declared = nothing, not_applicable = boolean/object.")
+    constraints: list[Constraint] = Field(description="Every keyword the spec declares on its schema. "
+                                                      "Empty list if none.")
+    evidence: Evidence
+
+    @model_validator(mode="after")
+    def _bounds_need_constraints(self) -> Parameter:
+        if self.bounds in ("declared", "partial") and not self.constraints:
+            raise ValueError(f"parameter '{self.name}': bounds='{self.bounds}' but constraints is "
+                             "empty. List the declaring keywords or set bounds='not_declared'.")
+        return self
+
+
 class Operation(_Wire):
     id: Id = Field(description="Operation id copied verbatim from <operation_inventory>.")
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
@@ -161,6 +184,9 @@ class Operation(_Wire):
     effect: Literal["read", "create", "update", "delete", "action"] = Field(
         description="What the operation does to domain state.")
     entities: list[Id] = Field(description="Ids of entities this operation reads or changes.")
+    parameters: list[Parameter] = Field(
+        description="Every parameter the spec declares for this operation, at path-item or operation "
+                    "level. Empty list if none; never invent one (a path template alone declares none).")
     idempotency: Verdict = Field(description="Is repeating the call with the same input safe, and "
                                              "does the spec say so? not_applicable for reads.")
     authorization: Verdict = Field(description="Who may call it: security requirements in effect.")
@@ -369,7 +395,13 @@ class DomainModel(_Wire):
                 if (ops[oid].method, ops[oid].path) != (m.upper(), p):
                     errors.append(f"op '{oid}': method/path must be {m.upper()} {p}.")
         spec = ctx.get("spec")
-
+        if spec is not None:
+            for o in self.operations:
+                declared = _declared_parameters(spec, o.method, o.path)
+                for prm in o.parameters:
+                    if (prm.name, prm.location) not in declared:
+                        errors.append(f"op '{o.id}': parameter '{prm.name}' ({prm.location}) is not "
+                                      "declared in the spec; list only declared parameters.")
         if spec is not None:
             for ptr in sorted(set(_all_pointers(self))):
                 if not _resolves(spec, ptr):
@@ -403,6 +435,31 @@ def _all_pointers(obj: Any) -> list[str]:
         for x in obj:
             out.extend(_all_pointers(x))
     return out
+
+
+def _declared_parameters(spec: dict[str, Any], method: str, path: str) -> set[tuple[str, str]]:
+    """(name, in) of every parameter declared for one operation, `$ref`s resolved."""
+    item = (spec.get("paths") or {}).get(path) or {}
+    op = item.get(method.lower()) or {} if isinstance(item, dict) else {}
+    out: set[tuple[str, str]] = set()
+    for raw in [*(item.get("parameters") or []), *(op.get("parameters") or [])]:
+        prm = raw
+        if isinstance(raw, dict) and isinstance(raw.get("$ref"), str):
+            prm = _lookup(spec, raw["$ref"]) or {}
+        if isinstance(prm, dict) and prm.get("name") and prm.get("in"):
+            out.add((prm["name"], prm["in"]))
+    return out
+
+
+def _lookup(doc: Any, pointer: str) -> Any:
+    node = doc
+    for raw in pointer[2:].split("/") if pointer.startswith("#/") else []:
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, dict) and token in node:
+            node = node[token]
+        else:
+            return None
+    return node
 
 
 def _resolves(doc: Any, pointer: str) -> bool:

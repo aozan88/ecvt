@@ -44,6 +44,7 @@ Do not use: writing scenarios or test cases, judging whether the system is defec
   - Link present and the spec restricts cross-party access (scopes, "only the owner", tenant path) → `declared`/`described`.
   - Link present and nothing said → `not_specified`.
 - Every `not_specified`/`contradictory` verdict (except read idempotency) carries its `gap_question`: the question the spec leaves open. It is filed as a gap for you; identical questions on the same dimension are filed once with every operation. `gap_question` is `null` on every other verdict.
+- `parameters`: every parameter the spec declares for the operation, at path-item or operation level, with `location` (`in`), `type`, `required`, `bounds` and `constraints` on the same scale as entity fields. A path template alone declares nothing; `[]` if none.
 - `declared_errors`: list every declared 4XX/5XX/default code; `[]` if none.
 
 **4. Find workflows.** Record one only if it spans 2 or more operations.

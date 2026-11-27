@@ -119,3 +119,21 @@ def test_an_explicit_gap_still_covers_a_verdict():
     })  # fmt: skip
     dm = DomainModel.model_validate(payload)
     assert [g.id for g in dm.gaps if g.dimension == "idempotency"] == ["create_repeat"]
+
+
+def test_parameters_must_be_declared_in_the_spec():
+    import yaml
+
+    from agents.a02_domain_intelligence.agent import build_inventory
+
+    text = PROMPT.read_text(encoding="utf-8")
+    examples = text[text.index("<examples>") :]
+    spec = yaml.safe_load(examples[examples.index("<spec>") + 6 : examples.index("</spec>")])
+    context = {"spec": spec, "inventory": build_inventory(spec)}
+    payload = copy.deepcopy(valid_payload())
+    DomainModel.model_validate(payload, context=context)
+
+    invented = {**payload["operations"][1]["parameters"][0], "name": "force", "location": "query"}
+    payload["operations"][1]["parameters"].append(invented)
+    with pytest.raises(ValidationError, match="parameter 'force' \\(query\\) is not declared"):
+        DomainModel.model_validate(payload, context=context)

@@ -341,6 +341,13 @@
               },
               "type": "array"
             },
+            "parameters": {
+              "description": "Every parameter the spec declares for this operation, at path-item or operation level. Empty list if none; never invent one (a path template alone declares none).",
+              "items": {
+                "$ref": "#/$defs/Parameter"
+              },
+              "type": "array"
+            },
             "idempotency": {
               "$ref": "#/$defs/Verdict",
               "description": "Is repeating the call with the same input safe, and does the spec say so? not_applicable for reads."
@@ -368,10 +375,86 @@
             "path",
             "effect",
             "entities",
+            "parameters",
             "idempotency",
             "authorization",
             "ownership",
             "declared_errors"
+          ],
+          "type": "object"
+        },
+        "Parameter": {
+          "additionalProperties": false,
+          "description": "A parameter the spec declares for one operation (M4-T2).",
+          "properties": {
+            "name": {
+              "description": "Parameter name exactly as in the spec.",
+              "type": "string"
+            },
+            "location": {
+              "description": "The parameter's `in`.",
+              "enum": [
+                "path",
+                "query",
+                "header",
+                "cookie"
+              ],
+              "type": "string"
+            },
+            "type": {
+              "description": "JSON Schema type of its schema; 'unknown' if the spec gives none.",
+              "enum": [
+                "string",
+                "integer",
+                "number",
+                "boolean",
+                "array",
+                "object",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "required": {
+              "description": "As declared; path parameters are always required.",
+              "type": "boolean"
+            },
+            "bounds": {
+              "description": "Same scale as entity fields: declared = both ends constrained, partial = one end, not_declared = nothing, not_applicable = boolean/object.",
+              "enum": [
+                "declared",
+                "partial",
+                "not_declared",
+                "not_applicable"
+              ],
+              "type": "string"
+            },
+            "constraints": {
+              "description": "Every keyword the spec declares on its schema. Empty list if none.",
+              "items": {
+                "$ref": "#/$defs/Constraint"
+              },
+              "type": "array"
+            },
+            "evidence": {
+              "description": "Where in the spec this is stated, or \u2014 for not_specified/inferred \u2014 the exact location where the statement is missing or the reasoning starts.",
+              "items": {
+                "description": "RFC 6901 JSON Pointer into the OpenAPI document, e.g. '#/paths/~1parcels/post' or '#/components/schemas/Parcel/properties/weightKg'.",
+                "pattern": "^#/",
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "location",
+            "type",
+            "required",
+            "bounds",
+            "constraints",
+            "evidence"
           ],
           "type": "object"
         },
