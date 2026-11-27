@@ -12,7 +12,7 @@ Bir milestone; kapı listesi tam, `python scripts/gate_check.py Mx` PASS ve tag 
 - [x] M2 · 5 agent, Manager üzerinden · `v0.5.0`
 - [x] M3 · plugin, MCP eval, rapor, n8n, arayüz, landing + 60 sn video · `v1.0.0` → `v1.0.1`
   - G3 PASS + tag `v1.0.0` (#47) · arayüz #49, #50 (ADR 0016) · roadmap #51 · kapanış: v1.0.1 PR · video ertelendi (ADR 0015)
-- [ ] G2 resmî kapanış: main'de `gate_check.py M2`; demo maddesi G3'e taşındı
+- [x] G2 resmî kapanış: main'de `gate_check.py M2`; demo maddesi G3'e taşındı · 2026-11-27: 9/9 PASS (G2-4: a01 %100, a02 %83,3 havuzlanmış), `fix/correction-answers-every-tool-use` ile
 
 ## İlkeler
 

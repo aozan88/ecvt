@@ -5,6 +5,20 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **A correction turn answered only one of several tool calls.** When a reply
+  carried two `tool_use` blocks, `structured_call`'s retry sent a `tool_result`
+  for the first only, and the API refused it with a 400; the eval runner then
+  recorded the case as unmeasured, which by rule keeps the bar unmet. G2-4 failed
+  this way with a02 at 88.2% pooled (2 of 36 measurements). The retry now answers
+  every `tool_use` block, and `tool_choice` sets `disable_parallel_tool_use`.
+
+### Verified
+- **Gate G2 closes on `main` code** (2026-11-27): G2-1..3 and G2-5..9 PASS in a full
+  run (live Manager run, four stages in order, catch rate 7/10, $0.108); G2-4 PASS
+  after the fix above — a01 100%, a02 83.3% pooled over 3 runs (75 · 83 · 92;
+  di-004 stable fail, di-001 and di-008 flaky), no case unmeasured.
+
 ### Changed
 - **The Manager is a planner by default** (M4-T3, ADR 0020). One strict
   `plan_run` call labels the request — intent, slots, and the clarifying question

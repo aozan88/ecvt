@@ -419,22 +419,27 @@ def _correction_messages(
                 ),
             }
         ]
-    return head + [
-        {"role": "assistant", "content": list(getattr(response, "content", None) or [])},
+    content = list(getattr(response, "content", None) or [])
+    rejection = (
+        f"Your previous output was rejected by schema validation:\n\n{failure}\n\n{instruction}"
+    )
+    # Every tool_use in the replayed turn needs its own tool_result, or the API
+    # refuses the request with a 400 — which the eval runner then records as an
+    # unmeasured case (G2-4, 2026-11-27: 2 of 36 a02 measurements). Only the
+    # validated block carries the rejection; any other call is told it was ignored.
+    results = [
         {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "is_error": True,
-                    "content": (
-                        f"Your previous output was rejected by schema validation:\n\n"
-                        f"{failure}\n\n{instruction}"
-                    ),
-                }
-            ],
-        },
+            "type": "tool_result",
+            "tool_use_id": b.id,
+            "is_error": True,
+            "content": rejection if b.id == block.id else "Ignored: send exactly one call.",
+        }
+        for b in content
+        if getattr(b, "type", None) == "tool_use" and getattr(b, "id", None)
+    ]
+    return head + [
+        {"role": "assistant", "content": content},
+        {"role": "user", "content": results},
     ]
 
 
@@ -456,11 +461,14 @@ tool call is a failed attempt like any other, so the retry loop covers it."""
 
 
 def tool_choice_for(model: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """Forced where the model allows it, `auto` where it does not; one call per
+    turn either way, so a rejected reply never carries a second tool_use."""
+    one = {"disable_parallel_tool_use": True}
     if model.startswith(FORCED_TOOL_UNSUPPORTED):
-        return {"type": "auto"}
+        return {"type": "auto", **one}
     if len(tools) == 1:
-        return {"type": "tool", "name": tools[0]["name"]}
-    return {"type": "any"}
+        return {"type": "tool", "name": tools[0]["name"], **one}
+    return {"type": "any", **one}
 
 
 def structured_call(

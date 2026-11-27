@@ -219,7 +219,7 @@ def test_planner_call_is_strict_low_effort_and_model_aware(tmp_path, model, choi
     _, _, client = run(tmp_path, plan("domain_analysis", target_system="w", plugin="wallet"),
                        model=model)  # fmt: skip
     call = client.messages.calls[0]
-    assert call["tool_choice"] == choice
+    assert call["tool_choice"] == {**choice, "disable_parallel_tool_use": True}
     assert call["tools"][0]["strict"] is True
     assert call["output_config"] == {"effort": pl.PLANNER_EFFORT}
 

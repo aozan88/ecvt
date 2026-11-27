@@ -303,7 +303,9 @@ def test_request_forces_the_tool_and_caches_system():
     )
 
     call = client.messages.calls[0]
-    assert call["tool_choice"] == {"type": "tool", "name": sg.TOOL_NAME}
+    assert call["tool_choice"] == {
+        "type": "tool", "name": sg.TOOL_NAME, "disable_parallel_tool_use": True,
+    }  # fmt: skip
     assert call["model"] == "claude-haiku-5-5"
     assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
     # One task message: no agent-harness context (ADR 0005).
@@ -712,3 +714,17 @@ def test_body_that_is_not_json_goes_back_as_a_correction():
     assert result.attempts == 2
     text = correction_text(client)
     assert "sc-001 action.body is not valid JSON" in text and "Field required" not in text
+
+
+def test_correction_answers_every_tool_use_in_the_rejected_turn():
+    """Two tool_use blocks in one reply need two tool_results, or the API answers
+    the retry with a 400 (G2-4, 2026-11-27)."""
+    from ecvt.llm import _correction_messages
+
+    first = FakeToolUse(name=sg.TOOL_NAME, input={}, id="toolu_a")
+    second = FakeToolUse(name=sg.TOOL_NAME, input={}, id="toolu_b")
+    response = FakeResponse(content=[FakeText("x"), first, second], usage=FakeUsage())
+    messages = _correction_messages("ask", response, first, "bad", sg.TOOL_NAME)
+    results = messages[-1]["content"]
+    assert [r["tool_use_id"] for r in results] == ["toolu_a", "toolu_b"]
+    assert "bad" in results[0]["content"] and "Ignored" in results[1]["content"]
