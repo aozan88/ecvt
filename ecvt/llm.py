@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 DEFAULT_SUBAGENT_MODEL = os.environ.get("ECVT_SUBAGENT_MODEL", "claude-haiku-5-5")
-DEFAULT_MANAGER_MODEL = os.environ.get("ECVT_MANAGER_MODEL", "claude-sonnet-5-5")
+# The planner (ADR 0020): Haiku met a01's bar at 100% over 3 runs, as Sonnet did (M4-T3).
+DEFAULT_MANAGER_MODEL = os.environ.get("ECVT_MANAGER_MODEL", "claude-haiku-5-5")
 PRICING_PATH = Path(__file__).resolve().parent.parent / "config" / "pricing.json"
 
 

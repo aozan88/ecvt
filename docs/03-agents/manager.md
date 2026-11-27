@@ -100,8 +100,9 @@ decisions are measured (`ecvt/evals.py` › `adapt_manager`).
 
 Optional `setup` per case: `seed_runs` (a stored run for `run_status`) and `stub_runners`
 (fault injection, e.g. `scenario_gen: fail_retryable`).
-Success bar: pass rate ≥ 80% (G2), and one live `full_validation` run where all four
-subagents run in order. Status: not yet run against a live model.
+Success bar: pass rate ≥ 80% (G2). Planner mode, 3 runs (M4-T3): 100% (36/36) on Haiku
+and on Sonnet. Live: 10 of 10 `ecvt run --manager` runs completed, catch rate 6 / 7 / 9
+(chain 7 / 7 / 8), $0.021 a run.
 
 ## 7. Dependencies and limits
 
@@ -109,7 +110,7 @@ subagents run in order. Status: not yet run against a live model.
 - Runtime: planner — Messages API, one strict call (ADR 0020); agent loop — Claude Agent
   SDK (`claude-agent-sdk==0.2.187`, delegation tool `Agent`, ADR 0009). Subagents:
   Messages API.
-- Models: planner `ECVT_MANAGER_MODEL`; agent loop `sonnet` with `haiku` adapters;
+- Models: planner `ECVT_MANAGER_MODEL` (default Haiku, M4-T3); agent loop `sonnet` with `haiku` adapters;
   subagents `ECVT_SUBAGENT_MODEL` (Haiku).
 - `MAX_ATTEMPTS = 2` — first try plus one retry; a third call is blocked.
 - `MAX_MANAGER_TURNS = 24` — hard stop; `finalize_guard` closes an unfinished run as failed.

@@ -21,13 +21,18 @@ only where a decision is needed.
 - **The Agent SDK loop stays**, unchanged in behaviour, behind
   `--manager-mode agent` / `ECVT_MANAGER_MODE=agent`. Both modes share the state
   file, the stage bookkeeping (`begin_stage` / `finish_stage`) and the runners.
-- The planner's model is `ECVT_MANAGER_MODEL`. `structured_call` uses `auto`
-  `tool_choice` on models that reject a forced one (Sonnet 5.5, Opus 5.5).
+- The planner's model is `ECVT_MANAGER_MODEL`, default **Haiku**: it met a01's bar
+  as Sonnet did (below). `structured_call` uses `auto` `tool_choice` on models that
+  reject a forced one (Sonnet 5.5, Opus 5.5).
 - a01's rubrics read the stage records both modes write, not Agent delegations.
 
-**Consequences:** the Manager's own spend falls to one short call; no adapter
-subagents, no turn limit to hit. The model can no longer skip, reorder or
-over-retry a stage — there is nothing left for it to decide there. Lost: a
+**Consequences:** measured 2026-11-27 (wallet-api, wallet plugin, 10 runs a side):
+the planner completed 10/10 with catch rate 6 / 7 / 9 against the chain's 7 / 7 / 8,
+at $0.021 a run (Manager share $0.004 on Sonnet; the rest is a02 + the chain) against
+the agent loop's $0.077 in M3. a01 eval, 3 runs: 100% on Sonnet and on Haiku. The
+Manager's own spend falls to one short call; no adapter subagents, no turn limit.
+The model can no longer skip, reorder or over-retry a stage — there is nothing left
+for it to decide there. Lost: a
 summary written freely in any language (templates cover en and tr), and the
 Agent SDK leaves the default runtime path; ECVT still ships it as a mode.
 

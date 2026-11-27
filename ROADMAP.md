@@ -36,7 +36,7 @@ Bir milestone; kapı listesi tam, `python scripts/gate_check.py Mx` PASS ve tag 
 
 - [x] M4-T1 a03 strict tool use / structured outputs: "Field required" 0/8 · ölçüldü: 0/8, ilk denemede 8/8 (main 4/8), catch rate 7/8/8 · ADR 0019 · #54
 - [ ] M4-T2 DomainModel'e operation parametreleri alanı (di-010). ADR 0012 = B gereği DomainModel a03'e verilmez
-- [ ] M4-T3 Manager: LLM pipeline'ı seçer, deterministik kod yürütür; sabit zincirle catch rate + maliyet kıyası (n ≥ 10); ardından Haiku eval, ≥ %80 ise Haiku
+- [x] M4-T3 Manager: LLM pipeline'ı seçer, deterministik kod yürütür; sabit zincirle catch rate + maliyet kıyası (n ≥ 10); ardından Haiku eval, ≥ %80 ise Haiku · planner 10/10, catch 6/7/9 (zincir 7/7/8), $0.021/koşu (eski döngü $0.077); a01 Haiku %100 → varsayılan Haiku · ADR 0020 · #56
 - [ ] M4-T4 Maliyet: yetim thread iptali, judge payı, `model_usage` ile ADR 0009'u yeniden değerlendir
 - [ ] M4-T5 Model matrisi: a03 için Haiku / Sonnet / Opus, konfigürasyon başına 5 koşu
 - [ ] M4-T6 Baseline: Claude Code + Opus tek oturum, Schemathesis (AI'sız) ve ECVT; 5'er koşu; hangi bug'ı kim yakaladı, varyans, maliyet
