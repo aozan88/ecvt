@@ -6,6 +6,20 @@ All notable changes to ECVT are documented here. Format based on
 ## [Unreleased]
 
 ### Changed
+- **The Manager is a planner by default** (M4-T3, ADR 0020). One strict
+  `plan_run` call labels the request — intent, slots, and the clarifying question
+  or redirect when a run cannot proceed; code derives the plan, runs the stages
+  in order, retries a retryable failure once and writes `manager_output` (checked
+  against `tools.json`) with a templated summary (en / tr). The Agent SDK loop is
+  unchanged behind `ecvt run --manager --manager-mode agent` /
+  `ECVT_MANAGER_MODE=agent`; both modes share the state file and stage
+  bookkeeping. `--manager-model` / `ECVT_MANAGER_MODEL` picks the planner's
+  model; `run.json` records `manager_mode`.
+- `structured_call` uses `auto` `tool_choice` on models that reject a forced one
+  (Sonnet 5.5, Opus 5.5, Fable 5.1+) and takes an optional `effort`.
+- a01's rubrics read the stage records both Manager modes write.
+
+### Changed
 - **a03 calls its tool with `strict: true`** (M4-T1, ADR 0019). Sampling is
   constrained to the tool schema, so a required field can no longer be left out
   and `scenarios` can no longer arrive as a string. `ecvt.llm.strict_schema`
