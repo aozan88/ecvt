@@ -1,6 +1,6 @@
 # ADR 0019 — a03 calls its tool with `strict: true`; free-form fields travel as text and lists
 
-**Status:** Proposed (M4-T1, 2026-11-27)
+**Status:** Accepted (Ozan, 2026-11-27)
 **Date:** 2026-11-27
 **Context:** a03's forced tool call is validated by Pydantic after the fact. When
 Haiku leaves out a required field the whole set is rejected and regenerated:
@@ -31,8 +31,9 @@ union-typed parameters.
 
 **Consequences:** `Field required` and `scenarios` sent as a string can no longer
 occur. Measured over 8 generations per arm (2026-11-27): first attempt 4/8 → 8/8,
-`Field required` 2/8 → 0/8, cost −33%; catch rate 7 / 8 / 8 over five runs. A new failure becomes possible — JSON text inside `body` that does not
-parse — and is counted separately (`scripts/measure_a03.py`, class `body_json`).
+`Field required` 2/8 → 0/8, cost −33%; catch rate 7 / 8 / 8 over five runs. A new
+failure becomes possible — JSON text inside `body` that does not parse — and is
+counted separately (`scripts/measure_a03.py`, class `body_json`).
 The category union and its set-level checks (ADR 0011) are unchanged. A model
 that rejects forced `tool_choice` (Opus 5.5, Sonnet 5.5) still needs `auto`;
 that is M4-T5's to add.
