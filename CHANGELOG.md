@@ -29,6 +29,9 @@ All notable changes to ECVT are documented here. Format based on
 
   Catch rate unchanged or better, M1 chain + wallet plugin, five runs:
   min 7 / median 8 / max 8 (M3: 6 / 7 / 8), ~$0.008 per run.
+  a03 eval, pooled over 3 runs: 93% (28/30; runs 80 · 100 · 100, sg-006 and
+  sg-008 flaky at 2/3), against 86.7% at 1.0.0. Total spend for M4-T1's
+  measurements: $0.22.
 
 ## [1.0.1] - 2026-11-27
 M3 closes: the browser UI on `ecvt serve` (#49, #50), the Etap 2 roadmap
