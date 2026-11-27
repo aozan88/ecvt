@@ -31,7 +31,7 @@ docker compose exec n8n n8n import:workflow --input=/workflows/ecvt-run.json
 docker compose exec n8n n8n publish:workflow --id=ecvtRunWebhook01
 ```
 
-Upgrading from 1.0: re-import the workflow. The 1.1 export calls `/runs?wait=true`;
+Upgrading from 1.0.0: re-import the workflow. The 1.0.1 export calls `/runs?wait=true`;
 the old one calls bare `/runs`, which now answers 202 at once (ADR 0016).
 
 A running n8n registers the published webhook within a minute; until then the

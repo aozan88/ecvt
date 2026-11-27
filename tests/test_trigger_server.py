@@ -1,4 +1,4 @@
-"""`ecvt serve` — the HTTP trigger n8n calls (M3-T5) and the browser UI behind it (v1.1).
+"""`ecvt serve` — the HTTP trigger n8n calls (M3-T5) and the browser UI behind it (1.0.1).
 
 Offline: the runner is faked, so no run spends anything.
 """

@@ -6,8 +6,8 @@ You are working in the ECVT (Edge Case Validation Toolkit) repository —
 an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
 
 ## Project Status
-- Plan: Master Plan v7 (M0–M3, 22 Oct – 13 Dec 2026) + Mapping v3 (architecture)
-- Current milestone and status: `ROADMAP.md` (Etap 2; Etap 1 export: `docs/10-roadmap/README.md`)
+- Plan: Project 00 (Claude Docs, repodan okunmaz). Durum: `ROADMAP.md`.
+- Architecture reference: Mapping v3. Etap 1 export: `docs/10-roadmap/README.md`.
 - Build order (v7): Scenario → Execution → Evaluation (M1), then Domain
   Intelligence + Manager (M2). Runtime pipeline order (rule 4) is unchanged.
 
@@ -32,7 +32,7 @@ an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
   `/adr`, `/daily`, `/retro`
 
 ## Coach Behavior
-- Match Master Plan v7 / Günlük Plan v7 for milestone and daily (Dnn) targets.
+- Match `ROADMAP.md` for milestone targets and their gates.
 - Silently flag deviations from planned DoDs.
 - Suggest next action but let the user decide.
 - Turkish responses, concise, list/table heavy.
@@ -46,13 +46,9 @@ underscores only — no leading digit, no hyphens):
 `a08_reporting`, `a09_knowledge`.
 
 ## Key References
-- Source of truth lives in Drive (ECVT folder), not in the repo:
-  - ECVT Günlük Plan v7 (status, Dnn days):
-    https://docs.google.com/document/d/1W9ePt7yobB81Q7-URFsgEBhiUt78YI5dtjr0LHwQJeI
-  - ECVT Master Plan v7 (scope, gates):
-    https://docs.google.com/document/d/16LzWFgGmDCpoiHoMffCN8W10grFFxksNU_42GARoC2E
-  - Mapping v3 (architecture). Master Plan v6.2 is archive only.
-  - `.docx` files are gitignored; local copies in `docs/12-research/` are optional.
+- Plan: Project 00 (Claude Docs, repodan okunmaz). Mapping v3 is the
+  architecture reference; Master Plan v6.2 is archive only.
+- `.docx` files are gitignored; local copies in `docs/12-research/` are optional.
 - Roadmap / milestone status: `ROADMAP.md` — each PR ticks its box and adds its link
 - Conventions: `docs/conventions.md`
 

@@ -5,8 +5,12 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-27
+M3 closes: the browser UI on `ecvt serve` (#49, #50), the Etap 2 roadmap
+(#51), and the docs brought up to date with what 1.0 ships.
+
 ### Added
-- **Browser UI on `ecvt serve` (v1.1).** `GET /` serves one page
+- **Browser UI on `ecvt serve`.** `GET /` serves one page
   (`ecvt/ui.html`, HTML + CSS + vanilla JS, no build step): pick target and
   plugin, judge on/off, Manager as an option (chain stays the default), Run,
   live step indicator, the Business recommendation when it ends, Business/Dev
@@ -27,6 +31,13 @@ All notable changes to ECVT are documented here. Format based on
   background. `POST /runs?wait=true` keeps the 1.0 answer; the n8n workflow
   now calls it — re-import `workflows/n8n/ecvt-run.json` after upgrading.
 - ADR 0016 — async runs and the status file.
+- `ROADMAP.md` is the status source for Etap 2 (M4–M7); `CLAUDE.md` points to it
+  and no longer links the Drive plans (#51 and this release).
+- ADR 0018 — a05 Execution is deterministic code: its `system_prompt.md` and
+  `tools.json` are not read by anything and are marked N/A; `SKILL.md`
+  describes the plugin `execute()` contract (ADR 0013).
+- README status and limitations, and `docs/01-product/value-proposition.md`,
+  rewritten from measured results.
 
 ### Verified
 - Real runs after #49 (2026-11-26): G3-2, G3-10, G3-11 PASS — the n8n webhook
@@ -35,7 +46,7 @@ All notable changes to ECVT are documented here. Format based on
   14 scenarios, 27 s, $0.0071, Business report opened in the viewer. Total
   spend for the four runs: $0.039.
 
-## [1.0.0] - 2026-11-25
+## [1.0.0] - 2026-11-26
 M3 — plugins, the ecvt-eval MCP server, Dev + Business reports, the n8n
 trigger and the landing page. ECVT runs against any OpenAPI target through a
 plugin, scores through its own MCP server, and answers a webhook with a release
