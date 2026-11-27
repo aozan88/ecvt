@@ -20,6 +20,39 @@ All notable changes to ECVT are documented here. Format based on
   di-004 stable fail, di-001 and di-008 flaky), no case unmeasured.
 
 ### Changed
+- **The Manager is a planner by default** (M4-T3, ADR 0020). One strict
+  `plan_run` call labels the request — intent, slots, and the clarifying question
+  or redirect when a run cannot proceed; code derives the plan, runs the stages
+  in order, retries a retryable failure once and writes `manager_output` (checked
+  against `tools.json`) with a templated summary (en / tr). The Agent SDK loop is
+  unchanged behind `ecvt run --manager --manager-mode agent` /
+  `ECVT_MANAGER_MODE=agent`; both modes share the state file and stage
+  bookkeeping. `--manager-model` / `ECVT_MANAGER_MODEL` picks the planner's
+  model, now **Haiku** by default (`.env.example` too — an `.env` copied from the
+  old example still says Sonnet); `run.json` records `manager_mode`.
+- `scripts/eval_runner.py` puts its own checkout first on `sys.path`, like the
+  other scripts: from a second worktree it imported the editable install's
+  checkout and measured that code instead.
+- `structured_call` uses `auto` `tool_choice` on models that reject a forced one
+  (Sonnet 5.5, Opus 5.5, Fable 5.1+) and takes an optional `effort`.
+- a01's rubrics read the stage records both Manager modes write, and the eval
+  view now shows each stage's `artifact_ref` so the refs can be checked.
+
+### Measured
+- **M4-T3, Manager modes** (2026-11-27, wallet-api, wallet plugin, `claude-haiku-5-5`
+  stages, `n_run.py --runs 10`):
+
+  | | Completed | Catch rate min / median / max | Cost / run (median) |
+  |---|---|---|---|
+  | M1 chain | 10/10 | 7 / 7 / 8 | $0.0075 |
+  | Manager, planner (Sonnet) | 10/10 | 6 / 7 / 9 | $0.0214 (Manager $0.0039) |
+  | Manager, agent loop (M3, 5 runs) | — | 4 / 4 / 6 | $0.077 |
+
+  The planner's cost over the chain is mostly a02, which the chain does not run.
+  a01 eval in planner mode, 3 runs: 100% (36/36) on Sonnet and on Haiku, so the
+  planner defaults to Haiku.
+
+### Changed
 - **a03 calls its tool with `strict: true`** (M4-T1, ADR 0019). Sampling is
   constrained to the tool schema, so a required field can no longer be left out
   and `scenarios` can no longer arrive as a string. `ecvt.llm.strict_schema`

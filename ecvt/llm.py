@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 DEFAULT_SUBAGENT_MODEL = os.environ.get("ECVT_SUBAGENT_MODEL", "claude-haiku-5-5")
-DEFAULT_MANAGER_MODEL = os.environ.get("ECVT_MANAGER_MODEL", "claude-sonnet-5-5")
+# The planner (ADR 0020): Haiku met a01's bar at 100% over 3 runs, as Sonnet did (M4-T3).
+DEFAULT_MANAGER_MODEL = os.environ.get("ECVT_MANAGER_MODEL", "claude-haiku-5-5")
 PRICING_PATH = Path(__file__).resolve().parent.parent / "config" / "pricing.json"
 
 
@@ -451,6 +452,26 @@ def _stuck(failures: list[str]) -> bool:
     return last == previous
 
 
+FORCED_TOOL_UNSUPPORTED = (
+    "claude-opus-5-5", "claude-sonnet-5-5",
+    "claude-fable-5-1", "claude-fable-5-2", "claude-mythos-5-1", "claude-mythos-5-2",
+)  # fmt: skip
+"""Models that answer a forced `tool_choice` (`tool` / `any`) with a 400. On these
+the call uses `auto` and relies on the prompt plus `strict: true`; a reply with no
+tool call is a failed attempt like any other, so the retry loop covers it."""
+
+
+def tool_choice_for(model: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
+    """Forced where the model allows it, `auto` where it does not; one call per
+    turn either way, so a rejected reply never carries a second tool_use."""
+    one = {"disable_parallel_tool_use": True}
+    if model.startswith(FORCED_TOOL_UNSUPPORTED):
+        return {"type": "auto", **one}
+    if len(tools) == 1:
+        return {"type": "tool", "name": tools[0]["name"], **one}
+    return {"type": "any", **one}
+
+
 def structured_call(
     *,
     system: str | list[str],
@@ -462,6 +483,7 @@ def structured_call(
     max_tokens: int = 8192,
     max_attempts: int = 3,
     cache_system: bool = True,
+    effort: str | None = None,
 ) -> StructuredResult:
     """Call Claude, force a tool call, and return input that `validate` accepted.
 
@@ -489,16 +511,9 @@ def structured_call(
 
     tools = [tool] if isinstance(tool, dict) else list(tool)
     names = {t["name"] for t in tools}
-    # One call per turn: a reply with two tool_use blocks needs a tool_result for
-    # each, and the correction turn below answers only the one it validated.
-    if len(tools) == 1:
-        tool_choice: dict[str, Any] = {
-            "type": "tool", "name": tools[0]["name"], "disable_parallel_tool_use": True,
-        }  # fmt: skip
-        label = tools[0]["name"]
-    else:
-        tool_choice = {"type": "any", "disable_parallel_tool_use": True}
-        label = " or ".join(t["name"] for t in tools)
+    tool_choice = tool_choice_for(model, tools)
+    label = " or ".join(t["name"] for t in tools)
+    extra: dict[str, Any] = {"output_config": {"effort": effort}} if effort else {}
     validators = validate if isinstance(validate, dict) else dict.fromkeys(names, validate)
 
     messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
@@ -513,6 +528,7 @@ def structured_call(
             tools=tools,
             tool_choice=tool_choice,
             messages=messages,
+            **extra,
         )
         usage.add_response(response)
 
