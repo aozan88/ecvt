@@ -13,6 +13,12 @@ All notable changes to ECVT are documented here. Format based on
   this way with a02 at 88.2% pooled (2 of 36 measurements). The retry now answers
   every `tool_use` block, and `tool_choice` sets `disable_parallel_tool_use`.
 
+### Verified
+- **Gate G2 closes on `main` code** (2026-11-27): G2-1..3 and G2-5..9 PASS in a full
+  run (live Manager run, four stages in order, catch rate 7/10, $0.108); G2-4 PASS
+  after the fix above — a01 100%, a02 83.3% pooled over 3 runs (75 · 83 · 92;
+  di-004 stable fail, di-001 and di-008 flaky), no case unmeasured.
+
 ### Changed
 - **a03 calls its tool with `strict: true`** (M4-T1, ADR 0019). Sampling is
   constrained to the tool schema, so a required field can no longer be left out
