@@ -7,7 +7,7 @@ an AI Quality Engineering Platform built with Claude Agent SDK + n8n.
 
 ## Project Status
 - Plan: Master Plan v7 (M0–M3, 22 Oct – 13 Dec 2026) + Mapping v3 (architecture)
-- Current milestone and status: `docs/10-roadmap/README.md`
+- Current milestone and status: `ROADMAP.md` (Etap 2; Etap 1 export: `docs/10-roadmap/README.md`)
 - Build order (v7): Scenario → Execution → Evaluation (M1), then Domain
   Intelligence + Manager (M2). Runtime pipeline order (rule 4) is unchanged.
 
@@ -53,7 +53,7 @@ underscores only — no leading digit, no hyphens):
     https://docs.google.com/document/d/16LzWFgGmDCpoiHoMffCN8W10grFFxksNU_42GARoC2E
   - Mapping v3 (architecture). Master Plan v6.2 is archive only.
   - `.docx` files are gitignored; local copies in `docs/12-research/` are optional.
-- Roadmap / milestone status: `docs/10-roadmap/README.md`
+- Roadmap / milestone status: `ROADMAP.md` — each PR ticks its box and adds its link
 - Conventions: `docs/conventions.md`
 
 ## What NOT to do
