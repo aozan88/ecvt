@@ -1,4 +1,4 @@
-"""ECVT's HTTP trigger and browser UI — `ecvt serve` (M3-T5, v1.1 UI).
+"""ECVT's HTTP trigger and browser UI — `ecvt serve` (M3-T5; UI since 1.0.1).
 
     ecvt serve [--host 127.0.0.1] [--port 8090] [--base-url URL]
 
@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from ecvt import __version__
 from ecvt.execution import DEFAULT_BASE_URL
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -390,7 +391,7 @@ def make_handler(
     store = store or RunStore(config)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "ecvt-trigger/1.1"
+        server_version = f"ecvt-trigger/{__version__}"
 
         def _send_bytes(
             self, status: HTTPStatus, data: bytes, ctype: str, extra: dict[str, str] | None = None

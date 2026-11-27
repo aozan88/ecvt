@@ -1,12 +1,13 @@
 ---
 name: execution
-description: Runs ECVT test scenarios against a live target system over HTTP and records every response verbatim — status, body, timing — without judging correctness. Trigger when scenarios exist and need to be run against a target, when a previous run must be repeated after a target change, or when a scenario failed to run and the cause must be identified.
+description: Runs ECVT test scenarios against a live target system through a plugin and records every response verbatim — status, body, timing — without judging correctness. Trigger when scenarios exist and need to be run against a target, when a run must be repeated after a target change, or when a scenario failed to run and the cause must be identified.
 ---
 
 # Execution Skill
 
-DRAFT skeleton (M1-T4). The runner itself is implemented and tested
-(`ecvt/execution.py`); this file becomes the agent-facing procedure in M2.
+Deterministic code, no model call (ADR 0009, 0018). The contract is the Plugin
+ABC's `execute(scenarios)` (ADR 0013); `rest_api` and `wallet` implement it with
+the Core runner `ecvt/execution.py`.
 
 ## When to use
 
@@ -19,17 +20,48 @@ to run (01).
 
 ## Inputs required
 
-- `scenarios.jsonl` from the Scenario Generator
-- Target base URL
+- A ScenarioSet (`scenarios.jsonl`, `ecvt/schema.py`).
+- A plugin by name (`--plugin`, default `rest_api`) and a `PluginContext`:
+  `base_url`, `timeout_s`, `max_parallel`, plugin `options`.
+
+## Interface
+
+```
+plugin = load(name, PluginContext(base_url=...))      # PluginError if unknown or a stub
+records = await plugin.execute(scenarios)              # one ExecutionRecord per scenario
+```
+
+`execute` takes the whole set, so a plugin can share one client or session and
+must keep scenarios that share target state from overlapping (`rest_api` runs
+them one after another). It raises for nothing the target does.
 
 ## Steps
 
-1. Read and validate the scenarios. A malformed line stops nothing else.
-2. For each scenario: run `setup` in order, bind `save` captures, fire the
-   `action` (`repeat` in series, `concurrency` in parallel), run the `probes`.
-3. Record every response as-is. On no response, retry up to the limit and then
-   record the failure — do not retry a received status.
-4. Write `executions.jsonl` and report the outcome mix.
+1. Load the plugin. Unknown or unimplemented → stop before anything is spent;
+   never fall back to another plugin.
+2. Per scenario, run `setup` in order; each step must answer 2xx and bind its
+   `save` captures into `{name}` placeholders.
+   - A setup step fails or a placeholder cannot be bound → `setup_failed`; the
+     action is not attempted.
+3. Fire the `action`: `repeat` rounds in series, `concurrency` copies in
+   parallel per round (capped by `max_parallel`).
+   - No attempt reaches the target → `action_error`.
+   - Any HTTP status, 500 included → `completed`; the status is the finding.
+4. Run the `probes` (read-only state after the action).
+5. Record every `StepResult` as received: status, body, timing, attempts, error.
+
+## Errors (ADR 0006)
+
+- Transport faults (timeout, connect refused) retry up to 2× with backoff.
+- A received status is never retried, whatever it is.
+- The target being down produces records, not an exception; Evaluation reports
+  them as not run, never as defects.
+
+## Output
+
+`executions.jsonl` (chain) or `runs/<run_id>/execution.json` (Manager): one
+`ExecutionRecord` per scenario (`ecvt/results.py`) with `outcome`, every step and
+the resolved `bindings`.
 
 ## Anti-patterns
 
@@ -39,9 +71,5 @@ to run (01).
   idempotency bugs the adversarial scenarios exist to find.
 - **Repairing scenarios.** Editing a scenario so it runs turns a Generator
   defect into a silent pass.
-
-<!-- TODO before this file leaves draft:
-     - decision criteria in Steps (if/else), per the agent standard
-     - plugin hand-off once M3-T1 moves the runner behind the Plugin ABC
-     - templates section
--->
+- **Scoring in a plugin.** A plugin may hand a06 `domain_rules()`; the verdict
+  stays in a06 (ADR 0013).

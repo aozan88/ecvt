@@ -1,6 +1,6 @@
 # ECVT Roadmap · Etap 2 (v1.x → v2.0.0)
 
-Son güncelleme: 26 Kas 2026 · Kaynak: ECVT Master Plan v7 (Claude Project 00)
+Son güncelleme: 27 Kas 2026 · Kaynak: ECVT Master Plan v7 (Claude Project 00)
 
 **Durum bu dosyada tutulur.** Her PR ilgili kutuyu işaretler ve yanına PR linkini yazar.
 Bir milestone; kapı listesi tam, `python scripts/gate_check.py Mx` PASS ve tag atılmışsa kapanır.
@@ -10,8 +10,8 @@ Bir milestone; kapı listesi tam, `python scripts/gate_check.py Mx` PASS ve tag 
 - [x] M0 · kurulum + wallet-api · `v0.0.1`
 - [x] M1 · Scenario → Execution → Evaluation zinciri · `v0.3.0`
 - [x] M2 · 5 agent, Manager üzerinden · `v0.5.0`
-- [ ] M3 · plugin, MCP eval, rapor, n8n, arayüz, landing + 60 sn video · `v1.0.0`
-  - tag `v1.0.0` atıldı (G3 PASS, #47) · arayüz ✅ #49, #50 (ADR 0016: async koşu + ilerleme) · açık: 60 sn video (ADR 0015)
+- [x] M3 · plugin, MCP eval, rapor, n8n, arayüz, landing + 60 sn video · `v1.0.0` → `v1.0.1`
+  - G3 PASS + tag `v1.0.0` (#47) · arayüz #49, #50 (ADR 0016) · roadmap #51 · kapanış: v1.0.1 PR · video ertelendi (ADR 0015)
 - [ ] G2 resmî kapanış: main'de `gate_check.py M2`; demo maddesi G3'e taşındı
 
 ## İlkeler

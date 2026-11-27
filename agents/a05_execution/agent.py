@@ -4,9 +4,10 @@ Pipeline position: second agent of the M1 chain. Reads `scenarios.jsonl` from
 the Scenario Generator, runs every scenario against the target over HTTP, and
 writes `executions.jsonl` for Evaluation.
 
-Makes no model calls (ADR 0009): scoring is Evaluation's job, and running HTTP
-needs no reasoning. The 5 agent files land in M1-T4, when the Manager starts
-dispatching this agent as a subagent.
+Makes no model calls (ADR 0009, 0018): scoring is Evaluation's job, and running
+HTTP needs no reasoning. In a run this is `plugin.execute()` (ADR 0013); this
+module is the developer tool over the Core runner. `system_prompt.md` and
+`tools.json` are N/A notes.
 
 CLI:
     python -m agents.a05_execution.agent \
@@ -29,10 +30,6 @@ from ecvt.schema import read_scenarios_jsonl
 
 AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "execution"
-
-
-def load_system_prompt() -> str:
-    return (AGENT_DIR / "system_prompt.md").read_text(encoding="utf-8")
 
 
 def summarize(records: list[ExecutionRecord]) -> str:

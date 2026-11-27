@@ -3,7 +3,7 @@
 > v1.5 · 2026-11-26 · Max 10 pages. The M1 chain (Scenario → Execution →
 > Evaluation) and the M2 additions — Manager (a01) and Domain Intelligence
 > (a02) — are all live on `main` (PRs #25, #26); M3 adds the plugin layer
-> (M3-T1 #37, M3-T2 #38) the ecvt-eval MCP server (M3-T3) and the Dev + Business reports (M3-T4) and the n8n trigger (M3-T5); v1.1 adds the browser UI on `ecvt serve` (ADR 0016). Stage contracts, context passing and error
+> (M3-T1 #37, M3-T2 #38) the ecvt-eval MCP server (M3-T3) and the Dev + Business reports (M3-T4) and the n8n trigger (M3-T5); 1.0.1 adds the browser UI on `ecvt serve` (ADR 0016). Stage contracts, context passing and error
 > handling: [`pipeline.md`](pipeline.md).
 
 ## 1. System context

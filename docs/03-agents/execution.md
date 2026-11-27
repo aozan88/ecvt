@@ -1,7 +1,7 @@
 # Agent Spec — Execution (a05)
 
 Code: `plugins/<name>/` → `ecvt/execution.py` · `agents/a05_execution/` · Version 1.1 (M3-T1)
-· 2026-11-25 · ADRs 0006, 0009, 0010, 0013
+· 2026-11-25 · ADRs 0006, 0009, 0010, 0013, 0018
 
 ## 1. Role
 

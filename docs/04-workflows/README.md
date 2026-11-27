@@ -25,10 +25,10 @@ Webhook (POST /webhook/ecvt-run, responds from the last node)
 `judge` (default true). The body is passed to ECVT as is; ECVT validates it and
 refuses unknown fields, so n8n holds no rules of its own.
 
-**Synchronous on purpose.** Since v1.1 a bare `POST /runs` answers 202 and runs
+**Synchronous on purpose.** Since 1.0.1 a bare `POST /runs` answers 202 and runs
 in the background (the browser UI polls it, ADR 0016). The workflow asks for
 `?wait=true`, which keeps the M3-T5 behaviour: the webhook replies with the
-finished run. A workflow imported before v1.1 calls bare `/runs` and would get
+finished run. A workflow imported before 1.0.1 calls bare `/runs` and would get
 the 202 — re-import `workflows/n8n/ecvt-run.json`.
 
 **Output.** 200 with `status`, `run_id`, `run_dir`, `recommendation` (the Business
