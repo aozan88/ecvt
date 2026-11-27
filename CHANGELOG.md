@@ -5,6 +5,14 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+### Fixed
+- **A correction turn answered only one of several tool calls.** When a reply
+  carried two `tool_use` blocks, `structured_call`'s retry sent a `tool_result`
+  for the first only, and the API refused it with a 400; the eval runner then
+  recorded the case as unmeasured, which by rule keeps the bar unmet. G2-4 failed
+  this way with a02 at 88.2% pooled (2 of 36 measurements). The retry now answers
+  every `tool_use` block, and `tool_choice` sets `disable_parallel_tool_use`.
+
 ### Changed
 - **a03 calls its tool with `strict: true`** (M4-T1, ADR 0019). Sampling is
   constrained to the tool schema, so a required field can no longer be left out
