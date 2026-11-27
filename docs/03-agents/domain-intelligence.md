@@ -32,7 +32,9 @@ a task asking for those is declined.
 4. **Validation with the spec as context.** Pydantic checks the shape (`extra="forbid"`,
    no defaults), then the cross-checks: every inventory operation covered once, method and
    path match, every evidence pointer exists in the spec, every `not_specified` verdict and
-   unbounded field is covered by a gap. On failure the error text goes back to the model
+   unbounded field is covered by a gap. Since v2 (ADR 0021) an open verdict carries its own
+   `gap_question`, filed as a gap by the schema, and the identifier is an `is_identifier`
+   flag on a field, so neither rule can be broken by naming something that is not there. On failure the error text goes back to the model
    once as a correction (`max_attempts=2`).
 
 ## 4. Contract rules (what keeps the output honest)
@@ -41,6 +43,9 @@ a task asking for those is declined.
   key that must be present with `null`. A field the model skips is an error, not a blank.
 - **Silence is a finding.** Each operation carries three verdicts — idempotency,
   authorization, ownership — and a silent spec must produce a gap, not a guess.
+- **Parameters are part of the operation** (M4-T2): every declared path-item or
+  operation parameter, with location, type, required, bounds and constraints; one the
+  spec does not declare is rejected (ADR 0021).
 - **Provenance on every rule:** `declared` (machine-readable), `described` (prose) or
   `inferred`. An inferred rule can never have `high` confidence.
 - **Evidence is checked, not trusted.** A pointer that does not resolve is rejected, which

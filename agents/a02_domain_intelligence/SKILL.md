@@ -25,6 +25,7 @@ Do not use: writing scenarios or test cases, judging whether the system is defec
 - One entity per domain schema used in a request or response body. Fold request variants (`NewThing`, `ThingInput`) into the entity whose properties they are a subset of.
 - No entity for error envelopes, pagination wrappers or link objects.
 - A resource that only appears as a path noun with an id parameter becomes an entity whose `fields` contain only that parameter. If the spec has no field at all, `fields` is empty. Never invent fields.
+- `is_identifier`: `true` on the one field that identifies an instance (usually `id`), `false` on all others; all `false` if the spec exposes none.
 - `writable` = appears in a request body or parameter and is not `readOnly`.
 - Copy every declared keyword into `constraints`, as written. Then set `bounds`:
   - `declared`: both ends constrained (min and max, `enum`, `maxLength` or `pattern`, a bounding `format` such as `date`/`uuid`/`email`, `maxItems`)
@@ -42,6 +43,8 @@ Do not use: writing scenarios or test cases, judging whether the system is defec
   - No such link → `not_applicable`.
   - Link present and the spec restricts cross-party access (scopes, "only the owner", tenant path) → `declared`/`described`.
   - Link present and nothing said → `not_specified`.
+- Every `not_specified`/`contradictory` verdict (except read idempotency) carries its `gap_question`: the question the spec leaves open. It is filed as a gap for you; identical questions on the same dimension are filed once with every operation. `gap_question` is `null` on every other verdict.
+- `parameters`: every parameter the spec declares for the operation, at path-item or operation level, with `location` (`in`), `type`, `required`, `bounds` and `constraints` on the same scale as entity fields. A path template alone declares nothing; `[]` if none.
 - `declared_errors`: list every declared 4XX/5XX/default code; `[]` if none.
 
 **4. Find workflows.** Record one only if it spans 2 or more operations.
@@ -55,7 +58,7 @@ Do not use: writing scenarios or test cases, judging whether the system is defec
 
 **6. Raise gaps.** Walk the dimensions for each operation and entity. Write one question per gap, and group all refs that share the same question.
 - `bounds`: numeric fields with `partial`/`not_declared` (mandatory); strings only when writable and the value space matters (codes, quantities written as strings).
-- `idempotency`, `authorization`, `ownership`: every `not_specified`/`contradictory` verdict (mandatory, except read idempotency).
+- `idempotency`, `authorization`, `ownership`: not here — the verdict's `gap_question` (step 3) files them.
 - `state_transition`: transitions with no operation; operations whose allowed source states are not stated.
 - `concurrency`: two or more write operations that change the same instance or a shared counter.
 - `referential_integrity`: a write takes another entity's id and declares no error for a missing target.
@@ -67,7 +70,7 @@ Do not use: writing scenarios or test cases, judging whether the system is defec
 
 **8. Self-check before calling the tool.**
 - [ ] One operation per inventory row; ids, methods and paths copied verbatim
-- [ ] Every `not_specified`/`contradictory` verdict, unbounded numeric field and null-operation transition is covered by a gap
+- [ ] Every `not_specified`/`contradictory` verdict has a `gap_question`; every unbounded numeric field and null-operation transition is covered by a gap
 - [ ] Every pointer points at an existing node (escape `/` as `~1` in path keys)
 - [ ] No term, entity or rule that the spec does not mention
 - [ ] No gap phrased as a defect; no `inferred` item at `high`

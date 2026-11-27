@@ -11,6 +11,9 @@ Contract rules
 2. `extra="forbid"` on every model.
 3. Self-consistency is enforced here, not in the prompt: every `not_specified` verdict,
    unbounded numeric field and operation-less state transition must be covered by a gap.
+   v2 makes the two commonest violations hard to commit (ADR 0021): the identifier is
+   a flag on a field, so it cannot name a field that does not exist, and a verdict
+   carries its own `gap_question`, which this module files as a gap.
 4. Spec-dependent checks run when the caller passes
        context={"spec": <parsed OpenAPI dict>,
                 "inventory": {<op_id>: (<METHOD>, <path>), ...}}
@@ -28,7 +31,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "2.0"  # v2 (M4-T2, ADR 0021): is_identifier, gap_question, parameters
 
 
 class _Wire(BaseModel):
@@ -90,6 +93,8 @@ class Constraint(_Wire):
 
 class EntityField(_Wire):
     name: str = Field(description="Property name exactly as in the spec (case preserved).")
+    is_identifier: bool = Field(description="True for the one field that identifies an instance "
+                                            "(e.g. 'id'); false for every other field.")
     type: Literal["string", "integer", "number", "boolean", "array", "object", "unknown"] = Field(
         description="JSON Schema type; 'unknown' if the spec gives none.")
     writable: bool = Field(description="True if a client can set it: appears in a request body or "
@@ -114,20 +119,25 @@ class Entity(_Wire):
     id: Id
     name: str = Field(description="Name as the spec uses it (schema name or path noun).")
     description: Sentence = Field(description="One sentence: what this entity is in the spec's terms.")
-    identifier: str | None = Field(description="Name of the identifying field, or null if the spec "
-                                               "exposes none.")
     fields: list[EntityField] = Field(description="Fields found in the spec. Empty if the entity is "
                                                   "only named by a path; never invent fields.")
     evidence: Evidence
 
     @model_validator(mode="after")
-    def _identifier_is_a_field(self) -> Entity:
+    def _one_identifier(self) -> Entity:
         names = {f.name for f in self.fields}
-        if self.identifier is not None and self.identifier not in names:
-            raise ValueError(f"entity '{self.id}': identifier '{self.identifier}' is not in fields.")
+        flagged = [f.name for f in self.fields if f.is_identifier]
+        if len(flagged) > 1:
+            raise ValueError(f"entity '{self.id}': more than one field has is_identifier=true "
+                             f"({', '.join(flagged)}); keep it on the one that identifies an instance.")
         if len(names) != len(self.fields):
             raise ValueError(f"entity '{self.id}': duplicate field names.")
         return self
+
+    @property
+    def identifier(self) -> str | None:
+        """The identifying field's name, or None if the spec exposes none."""
+        return next((f.name for f in self.fields if f.is_identifier), None)
 
 
 # --------------------------------------------------------------------------- operations
@@ -138,7 +148,33 @@ class Verdict(_Wire):
                                               "the spec says two incompatible things; "
                                               "not_applicable = the dimension does not apply.")
     detail: Sentence = Field(description="One sentence stating what the spec says or what is missing.")
+    gap_question: Sentence | None = Field(
+        description="When status is not_specified or contradictory: the question the spec leaves "
+                    "open, phrased as a question (it is filed as a gap for you). null otherwise.")
     evidence: Evidence
+
+
+class Parameter(_Wire):
+    """A parameter the spec declares for one operation (M4-T2)."""
+
+    name: str = Field(description="Parameter name exactly as in the spec.")
+    location: Literal["path", "query", "header", "cookie"] = Field(description="The parameter's `in`.")
+    type: Literal["string", "integer", "number", "boolean", "array", "object", "unknown"] = Field(
+        description="JSON Schema type of its schema; 'unknown' if the spec gives none.")
+    required: bool = Field(description="As declared; path parameters are always required.")
+    bounds: Literal["declared", "partial", "not_declared", "not_applicable"] = Field(
+        description="Same scale as entity fields: declared = both ends constrained, partial = one "
+                    "end, not_declared = nothing, not_applicable = boolean/object.")
+    constraints: list[Constraint] = Field(description="Every keyword the spec declares on its schema. "
+                                                      "Empty list if none.")
+    evidence: Evidence
+
+    @model_validator(mode="after")
+    def _bounds_need_constraints(self) -> Parameter:
+        if self.bounds in ("declared", "partial") and not self.constraints:
+            raise ValueError(f"parameter '{self.name}': bounds='{self.bounds}' but constraints is "
+                             "empty. List the declaring keywords or set bounds='not_declared'.")
+        return self
 
 
 class Operation(_Wire):
@@ -148,6 +184,9 @@ class Operation(_Wire):
     effect: Literal["read", "create", "update", "delete", "action"] = Field(
         description="What the operation does to domain state.")
     entities: list[Id] = Field(description="Ids of entities this operation reads or changes.")
+    parameters: list[Parameter] = Field(
+        description="Every parameter the spec declares for this operation, at path-item or operation "
+                    "level. Empty list if none; never invent one (a path template alone declares none).")
     idempotency: Verdict = Field(description="Is repeating the call with the same input safe, and "
                                              "does the spec say so? not_applicable for reads.")
     authorization: Verdict = Field(description="Who may call it: security requirements in effect.")
@@ -300,16 +339,35 @@ class DomainModel(_Wire):
             return any(g.dimension in dims and ref in g.refs and (not contradictory or g.kind == "contradictory")
                        for g in self.gaps)
 
+        # A verdict's own gap_question becomes a gap (v2). Identical questions on the
+        # same dimension are filed once, with every operation that asked them.
+        filed: dict[tuple[str, str, str], list[tuple[str, list[str]]]] = {}
         for o in self.operations:
             checks = [("authorization", o.authorization), ("ownership", o.ownership)]
             if o.effect != "read":
                 checks.append(("idempotency", o.idempotency))
             for dim, v in checks:
-                if v.status in ("not_specified", "contradictory") and not covered(
-                        {dim}, f"op:{o.id}", v.status == "contradictory"):
-                    errors.append(f"op:{o.id} {dim} is {v.status} but no gap with dimension='{dim}'"
-                                  f"{' and kind=contradictory' if v.status == 'contradictory' else ''}"
-                                  f" references 'op:{o.id}'. Add one (refs may be shared) or correct the verdict.")
+                if v.status not in ("not_specified", "contradictory"):
+                    continue
+                kind = "contradictory" if v.status == "contradictory" else "unspecified"
+                if covered({dim}, f"op:{o.id}", kind == "contradictory"):
+                    continue
+                if v.gap_question:
+                    filed.setdefault((dim, kind, v.gap_question), []).append((o.id, v.evidence))
+                else:
+                    errors.append(f"op:{o.id} {dim} is {v.status}: set {dim}.gap_question to the question "
+                                  "the spec leaves open, or correct the verdict.")
+        taken = {g.id for g in self.gaps}
+        for (dim, kind, question), askers in filed.items():
+            gid, n = f"{askers[0][0]}_{dim}"[:60], 2
+            while gid in taken:
+                gid, n = f"{askers[0][0][:56]}_{dim[:1]}{n}", n + 1
+            taken.add(gid)
+            self.gaps.append(Gap(
+                id=gid, kind=kind, dimension=dim, refs=[f"op:{oid}" for oid, _ in askers],
+                question=question, priority="high",  # a write's outcome or a party boundary
+                evidence=sorted({p for _, ev in askers for p in ev})[:5],
+            ))
         for e in self.entities:
             for f in e.fields:
                 if f.type in ("integer", "number") and f.bounds in ("not_declared", "partial"):
@@ -337,6 +395,13 @@ class DomainModel(_Wire):
                 if (ops[oid].method, ops[oid].path) != (m.upper(), p):
                     errors.append(f"op '{oid}': method/path must be {m.upper()} {p}.")
         spec = ctx.get("spec")
+        if spec is not None:
+            for o in self.operations:
+                declared = _declared_parameters(spec, o.method, o.path)
+                for prm in o.parameters:
+                    if (prm.name, prm.location) not in declared:
+                        errors.append(f"op '{o.id}': parameter '{prm.name}' ({prm.location}) is not "
+                                      "declared in the spec; list only declared parameters.")
         if spec is not None:
             for ptr in sorted(set(_all_pointers(self))):
                 if not _resolves(spec, ptr):
@@ -370,6 +435,31 @@ def _all_pointers(obj: Any) -> list[str]:
         for x in obj:
             out.extend(_all_pointers(x))
     return out
+
+
+def _declared_parameters(spec: dict[str, Any], method: str, path: str) -> set[tuple[str, str]]:
+    """(name, in) of every parameter declared for one operation, `$ref`s resolved."""
+    item = (spec.get("paths") or {}).get(path) or {}
+    op = item.get(method.lower()) or {} if isinstance(item, dict) else {}
+    out: set[tuple[str, str]] = set()
+    for raw in [*(item.get("parameters") or []), *(op.get("parameters") or [])]:
+        prm = raw
+        if isinstance(raw, dict) and isinstance(raw.get("$ref"), str):
+            prm = _lookup(spec, raw["$ref"]) or {}
+        if isinstance(prm, dict) and prm.get("name") and prm.get("in"):
+            out.add((prm["name"], prm["in"]))
+    return out
+
+
+def _lookup(doc: Any, pointer: str) -> Any:
+    node = doc
+    for raw in pointer[2:].split("/") if pointer.startswith("#/") else []:
+        token = raw.replace("~1", "/").replace("~0", "~")
+        if isinstance(node, dict) and token in node:
+            node = node[token]
+        else:
+            return None
+    return node
 
 
 def _resolves(doc: Any, pointer: str) -> bool:

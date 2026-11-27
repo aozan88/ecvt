@@ -128,3 +128,10 @@ def test_eval_adapter_validates_against_the_spec(parcel_spec):
 
     ok.obj["entities"][0]["evidence"] = ["#/nowhere"]  # context is what catches this
     assert not score_schema_valid(case, ok).passed
+
+
+def test_committed_tools_json_matches_build_tools():
+    from agents.a02_domain_intelligence.schema import build_tools
+
+    committed = json.loads(Path("agents/a02_domain_intelligence/tools.json").read_text(encoding="utf-8"))
+    assert committed == build_tools(), "regenerate: python -m agents.a02_domain_intelligence.schema"
