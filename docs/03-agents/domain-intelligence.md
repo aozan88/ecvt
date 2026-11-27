@@ -43,6 +43,9 @@ a task asking for those is declined.
   key that must be present with `null`. A field the model skips is an error, not a blank.
 - **Silence is a finding.** Each operation carries three verdicts — idempotency,
   authorization, ownership — and a silent spec must produce a gap, not a guess.
+- **Parameters are part of the operation** (M4-T2): every declared path-item or
+  operation parameter, with location, type, required, bounds and constraints; one the
+  spec does not declare is rejected (ADR 0021).
 - **Provenance on every rule:** `declared` (machine-readable), `described` (prose) or
   `inferred`. An inferred rule can never have `high` confidence.
 - **Evidence is checked, not trusted.** A pointer that does not resolve is rejected, which
