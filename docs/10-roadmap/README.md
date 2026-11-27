@@ -1,5 +1,8 @@
 # Roadmap
 
+> **Etap 2 (M4–M7) durumu kök [`ROADMAP.md`](../../ROADMAP.md) dosyasındadır.** Bu
+> sayfa Etap 1'in (M0–M3) dışa aktarımıdır; yeni durum buraya yazılmaz.
+
 > Export of **ECVT Master Plan v7** + **ECVT Günlük Plan v7** (Drive, ECVT
 > folder). Those two docs are the source of truth; this copy is refreshed at
 > the Sunday retro. On conflict, Günlük Plan (status) > Master Plan (scope,
