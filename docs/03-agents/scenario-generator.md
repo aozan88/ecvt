@@ -1,7 +1,7 @@
 # Agent Spec — Scenario Generator (a03)
 
 Code: `agents/a03_scenario_generator/` · Version 1.1 (M3) · 2026-11-25 · ADRs 0005, 0007,
-0009, 0011, 0012
+0009, 0011, 0012, 0019
 
 ## 1. Role
 
@@ -27,9 +27,11 @@ security · negative · adversarial · persona.
 
 1. **Code distils the spec** into an API surface, so the prompt carries the contract,
    not the whole document.
-2. **One Messages API call with a forced tool** (`scenario_generator_output`), its input
-   schema generated from `ScenarioSetDraft`; `tools.json` is the committed copy, kept in
-   sync by a test. `max_tokens = 16000`: a 14-scenario set runs past 8192, and a cut-off
+2. **One Messages API call with a forced, strict tool** (`scenario_generator_output`,
+   `strict: true`, ADR 0019), its input schema generated from `ScenarioSetDraft` and
+   rewritten for strict sampling; `tools.json` is the committed copy, kept in sync by a
+   test. On the wire a step's `body` is JSON text and `query`/`headers`/`save` are
+   `[{name, value}]` lists; `from_wire` restores `HttpStep`'s shape before validation. `max_tokens = 16000`: a 14-scenario set runs past 8192, and a cut-off
    tool input surfaces as an unhelpful "Input should be a valid list".
 3. **Validation in the retry loop** (`structured_call`, up to 4 attempts): Pydantic, then
    set-level checks — every category present, and on an API that writes, at least one
@@ -74,8 +76,9 @@ parameter" and 49 of 70 executions failed setup.
 Bar ≥ 80%, **pooled over 3 runs** (`eval_runner --runs 3`, G3-6): a single run is one
 draw — the same code has read 90% and 70%.
 
-Generation reliability, 24 generations per arm (`scripts/measure_a03.py`, final prompt):
-23/24 valid sets, 15/24 on the first attempt, $0.0045 per run. Catch rate on the M1
+Generation reliability (`scripts/measure_a03.py`, spec-only): strict tool, 8 generations —
+8/8 valid, 8/8 on the first attempt, `Field required` 0/8, $0.0036 per generation; the
+non-strict `main` read 4/8 on the first attempt the same day (M4-T1, ADR 0019). Catch rate on the M1
 chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
 
 ## 7. Dependencies and limits
@@ -92,10 +95,12 @@ chain, five runs: min 6 / median 7 / max 8 (M3-T1..T3).
   fix failed all four attempts with one identical error each time (`field_required`,
   or `scenarios` sent as broken JSON text). Since then the correction names a JSON
   syntax error and where it is, and two identical rejections in a row restart from
-  the original request: 24/24 valid, 0 exhausted (CHANGELOG, Measured). The
-  omission itself remains — `Field required` in 8 of 24 generations.
+  the original request: 24/24 valid, 0 exhausted (CHANGELOG, Measured). Since M4-T1
+  the tool is strict, so the omission itself cannot occur (0/8, ADR 0019); a body
+  whose JSON text does not parse is the one wire-form failure left, counted as
+  `body_json` (0/8 so far).
 - With the DomainModel on, the account id is named `account_id` throughout a02's output
   while the target answers `{"id": ...}`; a03 once saved the wrong field (ADR 0012).
-- `system_prompt.md` is 171 lines against a "2 pages" rule and a test bound of 180 —
+- `system_prompt.md` is 177 lines against a "2 pages" rule and a test bound of 180 —
   the conventions decision is open.
 - Reads OpenAPI only; no prose requirements or acceptance criteria (a04, v1.2, M5).

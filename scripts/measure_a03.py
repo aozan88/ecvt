@@ -49,6 +49,10 @@ ERROR_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("missing_category", ("every category needs",)),
     # `scenarios` sent as a string of JSON text that does not parse (M3).
     ("json_string", ("type=list_type",)),
+    # The strict wire form's own failures (M4-T1, ADR 0019): a body whose JSON
+    # text does not parse or is not an object, a name given twice in a list.
+    ("body_json", ("body is not valid JSON", "body must be JSON text of an object")),
+    ("wire_duplicate", ("the same name appears twice",)),
 )
 
 

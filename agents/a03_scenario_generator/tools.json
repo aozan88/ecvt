@@ -2,6 +2,7 @@
   {
     "name": "scenario_generator_output",
     "description": "Return the generated edge-case scenarios. Use this tool for every response: it is the only way to deliver scenarios.",
+    "strict": true,
     "input_schema": {
       "$defs": {
         "AdversarialScenarioDraft": {
@@ -13,16 +14,12 @@
               "type": "string"
             },
             "repeat": {
-              "description": "Send the action N times in sequence. Above 1 for replay or double-submit; 1 for abuse that does not need a duplicate.",
-              "maximum": 50,
-              "minimum": 1,
+              "description": "Send the action N times in sequence. Above 1 for replay or double-submit; 1 for abuse that does not need a duplicate. (maximum: 50, minimum: 1)",
               "title": "Repeat",
               "type": "integer"
             },
             "concurrency": {
-              "description": "Send the action N times in parallel (race). 1 = no race.",
-              "maximum": 50,
-              "minimum": 1,
+              "description": "Send the action N times in parallel (race). 1 = no race. (maximum: 50, minimum: 1)",
               "title": "Concurrency",
               "type": "integer"
             },
@@ -37,8 +34,7 @@
               "type": "string"
             },
             "severity": {
-              "$ref": "#/$defs/Severity",
-              "default": "medium"
+              "$ref": "#/$defs/Severity"
             },
             "rationale": {
               "description": "Why this is worth testing — the failure mode it would expose.",
@@ -62,17 +58,20 @@
             }
           },
           "required": [
+            "category",
+            "repeat",
+            "concurrency",
             "id",
             "title",
-            "category",
+            "severity",
             "rationale",
+            "setup",
             "action",
-            "expectation",
-            "repeat",
-            "concurrency"
+            "expectation"
           ],
           "title": "AdversarialScenarioDraft",
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "Expectation": {
           "description": "What a correct system would do — never what the buggy target does.",
@@ -110,10 +109,13 @@
           },
           "required": [
             "expected_status",
-            "expected_behavior"
+            "expected_behavior",
+            "invariants",
+            "probes"
           ],
           "title": "Expectation",
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "HttpMethod": {
           "enum": [
@@ -127,7 +129,7 @@
           "type": "string"
         },
         "HttpStep": {
-          "description": "One HTTP call.\n\n`path` and string values inside `body` / `query` may contain `{name}`\nplaceholders, resolved by Execution from earlier steps' `save` captures.",
+          "description": "`HttpStep` as the generator writes it: every field present, nothing free-form.",
           "properties": {
             "name": {
               "description": "Short snake_case label, unique within the scenario.",
@@ -143,75 +145,46 @@
               "type": "string"
             },
             "body": {
-              "anyOf": [
-                {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "JSON request body.",
-              "title": "Body"
+              "description": "The JSON request body, written as JSON text of an object, e.g. '{\"owner\": \"alice\", \"amount\": 10}'. Empty string when the call has no body. String values inside may use {placeholders}.",
+              "title": "Body",
+              "type": "string"
             },
             "query": {
-              "anyOf": [
-                {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Query string parameters.",
-              "title": "Query"
+              "description": "Query string parameters; [] for none.",
+              "items": {
+                "$ref": "#/$defs/WireField"
+              },
+              "title": "Query",
+              "type": "array"
             },
             "headers": {
-              "anyOf": [
-                {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Extra request headers.",
-              "title": "Headers"
+              "description": "Extra request headers; [] for none.",
+              "items": {
+                "$ref": "#/$defs/WireField"
+              },
+              "title": "Headers",
+              "type": "array"
             },
             "save": {
-              "anyOf": [
-                {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Capture values from this step's JSON response for later steps: {\"src_id\": \"id\"} reads the response field `id` and binds it to {src_id}. Dotted paths index nested objects, e.g. 'data.account.id'.",
-              "title": "Save"
+              "description": "Capture values from this step's JSON response for later steps: {\"name\": \"src_id\", \"value\": \"id\"} reads the response field `id` and binds it to {src_id}. Dotted paths index nested objects, e.g. 'data.account.id'. [] when nothing is captured.",
+              "items": {
+                "$ref": "#/$defs/WireField"
+              },
+              "title": "Save",
+              "type": "array"
             }
           },
           "required": [
             "name",
             "method",
-            "path"
+            "path",
+            "body",
+            "query",
+            "headers",
+            "save"
           ],
-          "title": "HttpStep",
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "PlainScenarioDraft": {
           "description": "The other five categories: neither number appears in the schema at all.\n\nRequiring both on every scenario asked the model for 28 numbers at the\ndefault quota, 24 of which could only sensibly be 1, and it omitted some\noften enough to cost an attempt — with a02's DomainModel in the prompt, no\ngeneration validated on its first try. Asking only where the number is the\npoint cuts that to 8 (measured in CHANGELOG › Measured).\n\nCode supplies 1 and 1 on the way to `Scenario`.",
@@ -238,8 +211,7 @@
               "type": "string"
             },
             "severity": {
-              "$ref": "#/$defs/Severity",
-              "default": "medium"
+              "$ref": "#/$defs/Severity"
             },
             "rationale": {
               "description": "Why this is worth testing — the failure mode it would expose.",
@@ -263,15 +235,18 @@
             }
           },
           "required": [
+            "category",
             "id",
             "title",
-            "category",
+            "severity",
             "rationale",
+            "setup",
             "action",
             "expectation"
           ],
           "title": "PlainScenarioDraft",
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "Severity": {
           "enum": [
@@ -292,16 +267,12 @@
               "type": "string"
             },
             "repeat": {
-              "description": "Send the action N times (idempotency / replay). 1 = once.",
-              "maximum": 50,
-              "minimum": 1,
+              "description": "Send the action N times (idempotency / replay). 1 = once. (maximum: 50, minimum: 1)",
               "title": "Repeat",
               "type": "integer"
             },
             "concurrency": {
-              "description": "How many copies of the action run at once. Must be 2 or more: one sequential request cannot expose a race.",
-              "maximum": 50,
-              "minimum": 2,
+              "description": "How many copies of the action run at once. Must be 2 or more: one sequential request cannot expose a race. (maximum: 50, minimum: 2)",
               "title": "Concurrency",
               "type": "integer"
             },
@@ -316,8 +287,7 @@
               "type": "string"
             },
             "severity": {
-              "$ref": "#/$defs/Severity",
-              "default": "medium"
+              "$ref": "#/$defs/Severity"
             },
             "rationale": {
               "description": "Why this is worth testing — the failure mode it would expose.",
@@ -341,17 +311,40 @@
             }
           },
           "required": [
+            "category",
+            "repeat",
+            "concurrency",
             "id",
             "title",
-            "category",
+            "severity",
             "rationale",
+            "setup",
             "action",
-            "expectation",
-            "repeat",
-            "concurrency"
+            "expectation"
           ],
           "title": "StressScenarioDraft",
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
+        },
+        "WireField": {
+          "description": "One entry of a map that has no fixed keys.",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "value": {
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "value"
+          ],
+          "title": "WireField",
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "additionalProperties": false,
@@ -359,19 +352,7 @@
       "properties": {
         "scenarios": {
           "items": {
-            "discriminator": {
-              "mapping": {
-                "adversarial": "#/$defs/AdversarialScenarioDraft",
-                "edge": "#/$defs/PlainScenarioDraft",
-                "happy": "#/$defs/PlainScenarioDraft",
-                "negative": "#/$defs/PlainScenarioDraft",
-                "persona": "#/$defs/PlainScenarioDraft",
-                "security": "#/$defs/PlainScenarioDraft",
-                "stress": "#/$defs/StressScenarioDraft"
-              },
-              "propertyName": "category"
-            },
-            "oneOf": [
+            "anyOf": [
               {
                 "$ref": "#/$defs/StressScenarioDraft"
               },
@@ -383,10 +364,10 @@
               }
             ]
           },
-          "maxItems": 40,
           "minItems": 1,
           "title": "Scenarios",
-          "type": "array"
+          "type": "array",
+          "description": "(maxItems: 40)"
         }
       },
       "required": [

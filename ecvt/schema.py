@@ -358,6 +358,131 @@ class ScenarioSetDraft(BaseModel):
         return missing
 
 
+# --- the generator's strict wire format (ADR 0019) --------------------------
+#
+# a03 calls its tool with `strict: true`, which constrains sampling to the tool
+# schema so a required field can no longer be left out. Strict schemas must close
+# every object (`additionalProperties: false`), so an object whose keys are not
+# known in advance cannot be expressed: a request body, query, headers and the
+# `save` map would all come back `{}`. On the wire they are therefore a JSON text
+# and name/value lists, and `from_wire` turns them back into the `HttpStep` shape
+# before anything else sees them. Nothing past the generator knows the difference.
+
+
+class WireField(BaseModel):
+    """One entry of a map that has no fixed keys."""
+
+    name: str
+    value: str
+
+
+class WireHttpStep(BaseModel):
+    """`HttpStep` as the generator writes it: every field present, nothing free-form."""
+
+    name: str = Field(description="Short snake_case label, unique within the scenario.")
+    method: HttpMethod
+    path: str = Field(description="Path beginning with '/', e.g. /accounts/{src_id}/balance")
+    body: str = Field(
+        description=(
+            "The JSON request body, written as JSON text of an object, e.g. "
+            '\'{"owner": "alice", "amount": 10}\'. Empty string when the call has '
+            "no body. String values inside may use {placeholders}."
+        )
+    )
+    query: list[WireField] = Field(description="Query string parameters; [] for none.")
+    headers: list[WireField] = Field(description="Extra request headers; [] for none.")
+    save: list[WireField] = Field(
+        description=(
+            "Capture values from this step's JSON response for later steps: "
+            '{"name": "src_id", "value": "id"} reads the response field `id` and binds '
+            "it to {src_id}. Dotted paths index nested objects, e.g. 'data.account.id'. "
+            "[] when nothing is captured."
+        )
+    )
+
+
+class WireError(ValueError):
+    """The generator's output is well-typed but cannot become an HttpStep."""
+
+
+def _wire_map(value: Any, where: str) -> Any:
+    if not isinstance(value, list):
+        return value  # already a dict, or None: pass through to the model validator
+    if not all(isinstance(i, dict) and {"name", "value"} <= set(i) for i in value):
+        return value
+    names = [i["name"] for i in value]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise WireError(f"{where}: the same name appears twice: {', '.join(dupes)}")
+    return {i["name"]: i["value"] for i in value} or None
+
+
+def _wire_body(value: Any, where: str) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text in ("", "null"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        near = text[max(0, exc.pos - 30) : exc.pos + 20]
+        raise WireError(
+            f"{where}.body is not valid JSON: {exc.msg} at character {exc.pos}, near "
+            f"…{near}…. Write the body as JSON text of an object, or \"\" for no body."
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise WireError(
+            f"{where}.body must be JSON text of an object, got {type(parsed).__name__}"
+        )
+    return parsed
+
+
+def _wire_step(step: Any, where: str) -> Any:
+    if not isinstance(step, dict):
+        return step
+    out = dict(step)
+    if "body" in out:
+        out["body"] = _wire_body(out["body"], where)
+    for key in ("query", "headers", "save"):
+        if key in out:
+            out[key] = _wire_map(out[key], f"{where}.{key}")
+    return out
+
+
+def from_wire(data: Any) -> Any:
+    """The generator's tool input, turned back into the `ScenarioSetDraft` shape.
+
+    Tolerant by design: a value already in the old shape (a dict body, a dict
+    `save`) passes through, and anything it cannot read is left for the model
+    validator to reject with its usual message. It raises only for what it alone
+    can see — body text that is not JSON, a name given twice.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("scenarios"), list):
+        return data
+    scenarios = []
+    for scenario in data["scenarios"]:
+        if not isinstance(scenario, dict):
+            scenarios.append(scenario)
+            continue
+        s = dict(scenario)
+        sid = s.get("id", "?")
+        if isinstance(s.get("setup"), list):
+            s["setup"] = [_wire_step(x, f"{sid} setup[{i}]") for i, x in enumerate(s["setup"])]
+        if "action" in s:
+            s["action"] = _wire_step(s["action"], f"{sid} action")
+        exp = s.get("expectation")
+        if isinstance(exp, dict) and isinstance(exp.get("probes"), list):
+            s["expectation"] = {
+                **exp,
+                "probes": [
+                    _wire_step(x, f"{sid} probes[{i}]") for i, x in enumerate(exp["probes"])
+                ],
+            }
+        scenarios.append(s)
+    return {**data, "scenarios": scenarios}
+
+
 class ScenarioSet(BaseModel):
     """The Scenario Generator's output: scenarios covering all 7 categories."""
 

@@ -178,3 +178,57 @@ def test_jsonl_skips_blank_lines(tmp_path):
     path = tmp_path / "padded.jsonl"
     path.write_text("\n" + json.dumps(make_scenario()) + "\n\n", encoding="utf-8")
     assert len(read_scenarios_jsonl(path)) == 1
+
+
+# --- strict wire form (ADR 0019) ---------------------------------------------
+
+
+def _wire_set(**step):
+    action = {"name": "a", "method": "POST", "path": "/x", "body": "", "query": [],
+              "headers": [], "save": [], **step}  # fmt: skip
+    return {"scenarios": [{"id": "sc-1", "setup": [], "action": action}]}
+
+
+def test_from_wire_turns_text_and_lists_back_into_an_http_step():
+    from ecvt.schema import from_wire
+
+    out = from_wire(_wire_set(body='{"n": "{b}"}', save=[{"name": "b", "value": "id"}]))
+    action = out["scenarios"][0]["action"]
+    assert action["body"] == {"n": "{b}"} and action["save"] == {"b": "id"}
+    assert action["query"] is None and action["headers"] is None
+    assert from_wire(_wire_set(body="  "))["scenarios"][0]["action"]["body"] is None
+
+
+def test_from_wire_leaves_the_old_shape_alone():
+    from ecvt.schema import from_wire
+
+    old = {"scenarios": [make_scenario()]}
+    assert from_wire(old) == old
+    assert from_wire("not a set") == "not a set"
+
+
+@pytest.mark.parametrize(
+    ("step", "message"),
+    [
+        ({"body": '{"amount": '}, "sc-1 action.body is not valid JSON"),
+        ({"body": "[1, 2]"}, "must be JSON text of an object, got list"),
+        ({"save": [{"name": "b", "value": "id"}, {"name": "b", "value": "x"}]}, "twice: b"),
+    ],
+)
+def test_from_wire_says_what_it_alone_can_see(step, message):
+    from ecvt.schema import WireError, from_wire
+
+    with pytest.raises(WireError, match=message):
+        from_wire(_wire_set(**step))
+
+
+def test_strict_schema_refuses_an_object_that_could_only_be_empty():
+    from ecvt.llm import strict_schema
+
+    free_form = {"type": "object", "properties": {"body": {"type": "object"}}}
+    with pytest.raises(ValueError, match="cannot carry content"):
+        strict_schema(free_form)
+    closed = strict_schema({"type": "object", "properties": {"n": {"type": "integer",
+                                                                 "minimum": 1, "default": 1}}})
+    assert closed == {"type": "object", "additionalProperties": False, "required": ["n"],
+                      "properties": {"n": {"type": "integer", "description": "(minimum: 1)"}}}

@@ -5,6 +5,34 @@ All notable changes to ECVT are documented here. Format based on
 
 ## [Unreleased]
 
+### Changed
+- **a03 calls its tool with `strict: true`** (M4-T1, ADR 0019). Sampling is
+  constrained to the tool schema, so a required field can no longer be left out
+  and `scenarios` can no longer arrive as a string. `ecvt.llm.strict_schema`
+  rewrites the Pydantic schema for strict mode (every property required, objects
+  closed, `oneOf` → `anyOf`, bounds moved into descriptions and still enforced
+  by Pydantic): 0 optional and 1 union parameter against the API's 24 / 16. On
+  the wire a step's `body` is JSON text and `query` / `headers` / `save` are
+  name/value lists — a strict object cannot carry unlisted keys — and
+  `ecvt.schema.from_wire` restores `HttpStep`'s shape; nothing after a03 changes.
+  The few-shot is written in the wire form and tested against the schema.
+  `scripts/measure_a03.py` counts the wire form's own failures.
+
+### Measured
+- **M4-T1, a03 generation reliability.** `measure_a03.py --runs 8 --arm
+  spec-only`, wallet-api, `claude-haiku-5-5`, both arms on 2026-11-27:
+
+  | Arm | Valid | First attempt | `Field required` in | Other corrections | Cost / 8 |
+  |---|---|---|---|---|---|
+  | `main` | 8/8 | 4/8 | 2/8 | `scenarios` as JSON text ×4 | $0.0437 |
+  | strict | 8/8 | **8/8** | **0/8** | none | **$0.0291** |
+
+  Catch rate unchanged or better, M1 chain + wallet plugin, five runs:
+  min 7 / median 8 / max 8 (M3: 6 / 7 / 8), ~$0.008 per run.
+  a03 eval, pooled over 3 runs: 93% (28/30; runs 80 · 100 · 100, sg-006 and
+  sg-008 flaky at 2/3), against 86.7% at 1.0.0. Total spend for M4-T1's
+  measurements: $0.22.
+
 ## [1.0.1] - 2026-11-27
 M3 closes: the browser UI on `ecvt serve` (#49, #50), the Etap 2 roadmap
 (#51), and the docs brought up to date with what 1.0 ships.

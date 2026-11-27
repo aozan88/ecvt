@@ -27,10 +27,18 @@ from ecvt.llm import (
     StructuredCallError,
     StructuredResult,
     load_env,
+    strict_schema,
     structured_call,
 )
 from ecvt.openapi_reader import ApiDigest, read_openapi
-from ecvt.schema import ALL_CATEGORIES, ScenarioSet, ScenarioSetDraft, write_scenarios_jsonl
+from ecvt.schema import (
+    ALL_CATEGORIES,
+    ScenarioSet,
+    ScenarioSetDraft,
+    WireHttpStep,
+    from_wire,
+    write_scenarios_jsonl,
+)
 
 AGENT_DIR = Path(__file__).resolve().parent
 AGENT_NAME = "scenario_generator"
@@ -78,21 +86,39 @@ def _lead_with_execution_modes(schema: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-def build_tool() -> dict[str, Any]:
-    """The forced tool, with its input schema generated from the Pydantic model.
+def wire_schema() -> dict[str, Any]:
+    """`ScenarioSetDraft`'s schema with `HttpStep` in its wire form (ADR 0019).
 
-    Generating it keeps `tools.json` from drifting away from `ecvt.schema`;
-    `tests/test_tools_json_in_sync.py` asserts the committed copy matches.
+    Same `$defs` names, so every `$ref` to `HttpStep` now points at the wire
+    step; its own definitions (`WireField`) join the set.
     """
     schema = _lead_with_execution_modes(ScenarioSetDraft.model_json_schema())
     schema.pop("title", None)
+    step = WireHttpStep.model_json_schema(ref_template="#/$defs/{model}")
+    defs = schema["$defs"]
+    defs.update(step.pop("$defs", {}))
+    step.pop("title", None)
+    defs["HttpStep"] = step
+    return schema
+
+
+def build_tool() -> dict[str, Any]:
+    """The forced tool, strict, with its input schema generated from the Pydantic models.
+
+    `strict: true` constrains sampling to the schema, so a required field can no
+    longer be omitted — the `Field required` correction that cost a03 attempts
+    (M4-T1). Generating the schema keeps `tools.json` from drifting away from
+    `ecvt.schema`; `tests/test_scenario_generator.py` asserts the committed copy
+    matches.
+    """
     return {
         "name": TOOL_NAME,
         "description": (
             "Return the generated edge-case scenarios. Use this tool for every "
             "response: it is the only way to deliver scenarios."
         ),
-        "input_schema": schema,
+        "strict": True,
+        "input_schema": strict_schema(wire_schema()),
     }
 
 
@@ -145,14 +171,13 @@ def build_user_prompt(
         "At least one scenario must set `concurrency` above 1 and at least one must set "
         "`repeat` above 1 — a race and a replay cannot be seen from one sequential "
         "request.\n\n"
-        f"Call {TOOL_NAME} with the result. The `scenarios` field must be a JSON array, "
-        "not a string containing one."
+        f"Call {TOOL_NAME} with the result."
     )
 
 
 def _make_validator(require_all_categories: bool = True) -> Any:
     def validate(data: dict[str, Any]) -> ScenarioSetDraft:
-        draft = ScenarioSetDraft.model_validate(data)
+        draft = ScenarioSetDraft.model_validate(from_wire(data))
         if require_all_categories:
             missing = draft.missing_categories()
             if missing:
@@ -211,7 +236,7 @@ def generate_scenario_set(
         max_tokens=MAX_OUTPUT_TOKENS,
         max_attempts=max_attempts,
     )
-    draft = ScenarioSetDraft.model_validate(result.data)
+    draft = ScenarioSetDraft.model_validate(from_wire(result.data))
     scenario_set = ScenarioSet(
         target=target,
         spec_title=digest.title,

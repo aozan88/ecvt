@@ -224,6 +224,97 @@ class StructuredResult:
     """Which tool the model called — matters when it may choose between several."""
 
 
+STRICT_UNSUPPORTED = (
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+    "minLength", "maxLength", "maxItems", "uniqueItems", "pattern",
+)  # fmt: skip
+"""JSON Schema keywords a `strict: true` tool may not carry (structured outputs'
+JSON Schema limitations). They are not dropped silently: each moves into the
+field's description, and the Pydantic validator still enforces it."""
+
+
+def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """A Pydantic JSON schema rewritten for a `strict: true` tool (ADR 0019).
+
+    - every object is closed (`additionalProperties: false`) and lists all of
+      its properties as required: an optional field is exactly what a strict
+      grammar can still leave out, and each one counts toward the API's limit
+      of 24 per request;
+    - `oneOf` becomes `anyOf` and `discriminator` goes: strict schemas accept
+      only `anyOf`, and the branches are told apart by their `const` anyway;
+    - `default` goes (the field is required now), and so do the constraints in
+      STRICT_UNSUPPORTED and `minItems` above 1, written into the description.
+
+    An object with no listed properties can only ever be `{}` under strict
+    sampling, so it is refused here rather than allowed to lose its content.
+    """
+
+    def walk(node: Any, where: str) -> Any:
+        if isinstance(node, list):
+            return [walk(x, where) for x in node]
+        if not isinstance(node, dict):
+            return node
+        out: dict[str, Any] = {}
+        notes: list[str] = []
+        for key, value in node.items():
+            if key in ("default", "discriminator"):
+                continue
+            if key in STRICT_UNSUPPORTED or (key == "minItems" and value > 1):
+                notes.append(f"{key}: {value}")
+                continue
+            if key == "properties":
+                out[key] = {k: walk(v, f"{where}.{k}") for k, v in value.items()}
+            elif key == "$defs":
+                out[key] = {k: walk(v, k) for k, v in value.items()}
+            else:
+                out["anyOf" if key == "oneOf" else key] = walk(value, where)
+        if out.get("type") == "object":
+            props = out.get("properties")
+            if not props:
+                raise ValueError(
+                    f"{where}: an object without listed properties cannot carry content "
+                    "in a strict tool; give it fixed fields or a name/value list"
+                )
+            out["required"] = list(props)
+            out["additionalProperties"] = False
+        if notes:
+            text = out.get("description", "")
+            out["description"] = (text + " " if text else "") + "(" + ", ".join(notes) + ")"
+        return out
+
+    return walk(schema, "$")
+
+
+def strict_counts(schema: dict[str, Any]) -> dict[str, int]:
+    """Optional and union-typed parameters in a schema, as the API counts them
+    against its strict limits (24 and 16 per request)."""
+    counts = {"optional": 0, "union": 0}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, list):
+            for x in node:
+                walk(x)
+            return
+        if not isinstance(node, dict):
+            return
+        props = node.get("properties")
+        if isinstance(props, dict):
+            required = set(node.get("required") or [])
+            counts["optional"] += sum(1 for k in props if k not in required)
+            counts["union"] += sum(
+                1
+                for v in props.values()
+                if isinstance(v, dict)
+                and ("anyOf" in v or isinstance(v.get("type"), list)
+                     or "anyOf" in (v.get("items") or {}))
+            )  # fmt: skip
+        for value in node.values():
+            walk(value)
+
+    walk(schema)
+    return counts
+
+
 def coerce_json_strings(data: dict[str, Any]) -> dict[str, Any]:
     """Parse top-level values the model sent as JSON text instead of structure.
 

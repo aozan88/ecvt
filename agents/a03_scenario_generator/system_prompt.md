@@ -36,9 +36,9 @@ Cover all seven categories:
 - Create your own state. If a scenario needs a record, something to attach it to
   or a starting quantity, build it in `setup` and capture ids with `save`, then
   reference them as `{placeholder}`. Never assume a record already exists.
-- **`save` maps a name you choose to a field in the response body.** The field
-  name comes from the response, not from the path parameter that will later
-  carry it: a spec with `/things/{thing_id}` usually still answers `{"id": ...}`
+- **Each `save` entry binds a `name` you choose to a `value`: a field in the
+  response body.** The field comes from the response, not from the path
+  parameter that will later carry it: a spec with `/things/{thing_id}` usually still answers `{"id": ...}`
   on create. Reading a field the response does not have fails the whole
   scenario before its action runs.
 - `expectation.expected_status` and `expected_behavior` describe **correct**
@@ -71,7 +71,10 @@ Cover all seven categories:
 <output_format>
 Call `scenario_generator_output` with a single object whose `scenarios` array
 holds the scenarios. The tool's input schema is authoritative — it is generated
-from ECVT's Pydantic models, so a field it does not list will be rejected.
+from ECVT's Pydantic models, and every field it lists is required.
+
+Every step writes `body` as JSON text of an object (`""` when there is no body)
+and `query`, `headers` and `save` as lists of `{"name", "value"}` (`[]` when empty).
 
 No prose outside the tool call.
 </output_format>
@@ -99,18 +102,19 @@ POST /loans — open_loan
       "rationale": "No stated upper bound on `days`, so a loan may be opened for a term the service cannot honour.",
       "setup": [
         {"name": "create_member", "method": "POST", "path": "/members",
-         "body": {"name": "m-1"}, "save": {"borrower": "id"}},
+         "body": "{\"name\": \"m-1\"}", "query": [], "headers": [], "save": [{"name": "borrower", "value": "id"}]},
         {"name": "add_title", "method": "POST", "path": "/titles",
-         "body": {"name": "t-1", "copies": 1}, "save": {"item": "id"}}
+         "body": "{\"name\": \"t-1\", \"copies\": 1}", "query": [], "headers": [], "save": [{"name": "item", "value": "id"}]}
       ],
       "action": {"name": "open_long_loan", "method": "POST", "path": "/loans",
-                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 36500}},
+                 "body": "{\"member_id\": \"{borrower}\", \"title_id\": \"{item}\", \"days\": 36500}", "query": [], "headers": [], "save": []},
       "expectation": {
         "expected_status": [400, 409, 422],
         "expected_behavior": "The request is rejected because `days` is outside any term the service can commit to, and no loan is recorded against the member.",
         "invariants": ["the member holds no loans"],
         "probes": [
-          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans",
+           "body": "", "query": [], "headers": [], "save": []}
         ]
       }
     },
@@ -124,18 +128,19 @@ POST /loans — open_loan
       "concurrency": 5,
       "setup": [
         {"name": "create_member", "method": "POST", "path": "/members",
-         "body": {"name": "m-2"}, "save": {"borrower": "id"}},
+         "body": "{\"name\": \"m-2\"}", "query": [], "headers": [], "save": [{"name": "borrower", "value": "id"}]},
         {"name": "add_single_copy", "method": "POST", "path": "/titles",
-         "body": {"name": "t-2", "copies": 1}, "save": {"item": "id"}}
+         "body": "{\"name\": \"t-2\", \"copies\": 1}", "query": [], "headers": [], "save": [{"name": "item", "value": "id"}]}
       ],
       "action": {"name": "borrow_same_copy", "method": "POST", "path": "/loans",
-                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 14}},
+                 "body": "{\"member_id\": \"{borrower}\", \"title_id\": \"{item}\", \"days\": 14}", "query": [], "headers": [], "save": []},
       "expectation": {
         "expected_status": [201, 409],
         "expected_behavior": "Exactly one of the five requests opens a loan and the rest are refused; the one copy is never lent twice.",
         "invariants": ["the member holds exactly one loan"],
         "probes": [
-          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans",
+           "body": "", "query": [], "headers": [], "save": []}
         ]
       }
     },
@@ -149,18 +154,19 @@ POST /loans — open_loan
       "concurrency": 1,
       "setup": [
         {"name": "create_member", "method": "POST", "path": "/members",
-         "body": {"name": "m-3"}, "save": {"borrower": "id"}},
+         "body": "{\"name\": \"m-3\"}", "query": [], "headers": [], "save": [{"name": "borrower", "value": "id"}]},
         {"name": "add_title", "method": "POST", "path": "/titles",
-         "body": {"name": "t-3", "copies": 2}, "save": {"item": "id"}}
+         "body": "{\"name\": \"t-3\", \"copies\": 2}", "query": [], "headers": [], "save": [{"name": "item", "value": "id"}]}
       ],
       "action": {"name": "submit_twice", "method": "POST", "path": "/loans",
-                 "body": {"member_id": "{borrower}", "title_id": "{item}", "days": 7}},
+                 "body": "{\"member_id\": \"{borrower}\", \"title_id\": \"{item}\", \"days\": 7}", "query": [], "headers": [], "save": []},
       "expectation": {
         "expected_status": [201, 409],
         "expected_behavior": "The duplicate is recognised and only one loan exists afterwards, whether the second call is accepted as a no-op or refused.",
         "invariants": ["the member holds exactly one loan"],
         "probes": [
-          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans"}
+          {"name": "read_loans", "method": "GET", "path": "/members/{borrower}/loans",
+           "body": "", "query": [], "headers": [], "save": []}
         ]
       }
     }
