@@ -419,22 +419,27 @@ def _correction_messages(
                 ),
             }
         ]
-    return head + [
-        {"role": "assistant", "content": list(getattr(response, "content", None) or [])},
+    content = list(getattr(response, "content", None) or [])
+    rejection = (
+        f"Your previous output was rejected by schema validation:\n\n{failure}\n\n{instruction}"
+    )
+    # Every tool_use in the replayed turn needs its own tool_result, or the API
+    # refuses the request with a 400 — which the eval runner then records as an
+    # unmeasured case (G2-4, 2026-11-27: 2 of 36 a02 measurements). Only the
+    # validated block carries the rejection; any other call is told it was ignored.
+    results = [
         {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "is_error": True,
-                    "content": (
-                        f"Your previous output was rejected by schema validation:\n\n"
-                        f"{failure}\n\n{instruction}"
-                    ),
-                }
-            ],
-        },
+            "type": "tool_result",
+            "tool_use_id": b.id,
+            "is_error": True,
+            "content": rejection if b.id == block.id else "Ignored: send exactly one call.",
+        }
+        for b in content
+        if getattr(b, "type", None) == "tool_use" and getattr(b, "id", None)
+    ]
+    return head + [
+        {"role": "assistant", "content": content},
+        {"role": "user", "content": results},
     ]
 
 
@@ -484,11 +489,15 @@ def structured_call(
 
     tools = [tool] if isinstance(tool, dict) else list(tool)
     names = {t["name"] for t in tools}
+    # One call per turn: a reply with two tool_use blocks needs a tool_result for
+    # each, and the correction turn below answers only the one it validated.
     if len(tools) == 1:
-        tool_choice: dict[str, Any] = {"type": "tool", "name": tools[0]["name"]}
+        tool_choice: dict[str, Any] = {
+            "type": "tool", "name": tools[0]["name"], "disable_parallel_tool_use": True,
+        }  # fmt: skip
         label = tools[0]["name"]
     else:
-        tool_choice = {"type": "any"}
+        tool_choice = {"type": "any", "disable_parallel_tool_use": True}
         label = " or ".join(t["name"] for t in tools)
     validators = validate if isinstance(validate, dict) else dict.fromkeys(names, validate)
 

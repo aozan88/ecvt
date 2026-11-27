@@ -76,7 +76,7 @@ def test_request_shape(parcel_spec):
     assert res.model is not None and res.declined is None
 
     call = client.messages.calls[0]
-    assert call["tool_choice"] == {"type": "any"}
+    assert call["tool_choice"] == {"type": "any", "disable_parallel_tool_use": True}
     assert {t["name"] for t in call["tools"]} == {"emit_domain_model", "decline_task"}
     system = call["system"]
     assert len(system) == 2  # system prompt, then the skill
