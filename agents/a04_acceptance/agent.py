@@ -1,4 +1,4 @@
-"""Acceptance Agent — ECVT (v1.x).
+"""Acceptance Agent — ECVT (v1.2, M5).
 
 DRAFT scaffold. Iterate in Project 04.
 """
@@ -15,4 +15,4 @@ def load_system_prompt() -> str:
 
 
 async def run(payload: dict) -> dict:
-    raise NotImplementedError("Acceptance Agent — implement per roadmap (v1.x).")
+    raise NotImplementedError("Acceptance Agent — implement per roadmap (v1.2, M5).")

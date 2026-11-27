@@ -17,4 +17,4 @@ Parse business acceptance criteria into testable form and run gap analysis (miss
 - TODO: define output JSON shape (see `tools.json`).
 
 ## Notes
-- Version: v1.x
+- Version: v1.2 (M5)

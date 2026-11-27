@@ -2,7 +2,7 @@
 
 > DRAFT — inherits from root `CLAUDE.md`. Full version later.
 
-## Agent Role (v1.2)
+## Agent Role (v1.3, M6)
 Produce three audience-specific reports: Dev (technical), QA (coverage matrix), Business (1-page summary).
 
 ## Scope Boundary

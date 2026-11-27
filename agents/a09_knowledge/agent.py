@@ -1,4 +1,4 @@
-"""Knowledge Agent — ECVT (v2).
+"""Knowledge Agent — ECVT (v2.0, M7).
 
 DRAFT scaffold. Iterate in Project 09.
 """
@@ -15,4 +15,4 @@ def load_system_prompt() -> str:
 
 
 async def run(payload: dict) -> dict:
-    raise NotImplementedError("Knowledge Agent — implement per roadmap (v2).")
+    raise NotImplementedError("Knowledge Agent — implement per roadmap (v2.0, M7).")

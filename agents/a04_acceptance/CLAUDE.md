@@ -2,7 +2,7 @@
 
 > DRAFT — inherits from root `CLAUDE.md`. Full version later.
 
-## Agent Role (v1.x)
+## Agent Role (v1.2, M5)
 Parse business acceptance criteria into testable form and run gap analysis (missing coverage).
 
 ## Scope Boundary

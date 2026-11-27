@@ -2,7 +2,7 @@
 
 > DRAFT — inherits from root `CLAUDE.md`. Full version later.
 
-## Agent Role (v1.1)
+## Agent Role (v1.2, M5)
 Track eval scores historically per version and alert when a new release regresses.
 
 ## Scope Boundary

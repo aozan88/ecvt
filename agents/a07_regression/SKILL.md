@@ -17,4 +17,4 @@ Track eval scores historically per version and alert when a new release regresse
 - TODO: define output JSON shape (see `tools.json`).
 
 ## Notes
-- Version: v1.1
+- Version: v1.2 (M5)

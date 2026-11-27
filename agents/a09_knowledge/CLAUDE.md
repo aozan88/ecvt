@@ -2,7 +2,7 @@
 
 > DRAFT — inherits from root `CLAUDE.md`. Full version later.
 
-## Agent Role (v2)
+## Agent Role (v2.0, M7)
 After each run, capture lessons learned, recurring failure patterns, known issues, and a reusable prompt/test library.
 
 ## Scope Boundary

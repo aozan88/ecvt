@@ -1,4 +1,4 @@
-# Agent Spec — Acceptance (04, v1.x)
+# Agent Spec — Acceptance (04, v1.2, M5)
 
 > STUB — max 3 pages/agent. Code lives in agents/<NN-name>/.
 

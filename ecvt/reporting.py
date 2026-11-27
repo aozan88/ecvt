@@ -61,7 +61,7 @@ See "How attribution works" in any run report. `Unattributed` counts failing
 scenarios that fit no known defect — findings outside the baseline, or false
 positives.
 
-This table is the Regression Agent's baseline (v1.1): it compares new runs
+This table is the Regression Agent's baseline (v1.2, M5): it compares new runs
 against these rows rather than starting from nothing.
 
 | Date | Commit | Caught | Unattributed | Scenarios | Judged | Tokens | Cost USD | Seconds | Model |
@@ -335,7 +335,7 @@ def build_report(run_dir: Path, ground_truth: Path) -> tuple[str, dict[str, Any]
         "defect rather than the missing-validation one. What a category cannot tell",
         "us, the scenario's own reasoning and the judge's evidence could — matching",
         "on that text instead is the improvement to make when regression comparison",
-        "starts depending on per-defect rows (v1.1).",
+        "starts depending on per-defect rows (v1.2, M5).",
         "",
         "The count is the metric: how many distinct known defects this run plausibly",
         "surfaced. It is bounded by the number of failing scenarios and computed the",
@@ -372,7 +372,7 @@ def record_latest(report: str, commit: str, doc: Path | None = None) -> Path:
 
     One file, overwritten, so the repo gains a readable snapshot and git
     history gains the diff between runs — which is what the Regression agent
-    (v1.1) will want to read. It is also the sample report M2-T7 publishes.
+    (v1.2, M5) will want to read. It is also the sample report M2-T7 publishes.
     """
     doc = doc or LATEST_DOC
     doc.parent.mkdir(parents=True, exist_ok=True)

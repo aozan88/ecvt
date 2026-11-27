@@ -73,11 +73,11 @@ Manager  →  Domain Intelligence  →  Scenario Generator  →  Execution  → 
                workflows, rules)      adversarial, persona)   Playwright /  + semantic +
                                                               MCP / plugin) latency + cost)
    │
-   └──►  Regression (v1.1)  ·  Reporting (v1.2)  ·  Knowledge (v2)
+   └──►  Acceptance · Regression (v1.2, M5)  ·  Reporting (v1.3, M6)  ·  Knowledge (v2.0, M7)
 ```
 
 **MVP = 5 agents:** Manager, Domain Intelligence, Scenario Generator, Execution, Evaluation.
-**Later stages:** Acceptance (v1.x), Regression (v1.1), Reporting (v1.2), Knowledge (v2).
+**Later stages:** Acceptance and Regression (v1.2, M5), Reporting (v1.3, M6), Knowledge (v2.0, M7).
 
 Two things make the pipeline extensible:
 
@@ -91,7 +91,7 @@ Two things make the pipeline extensible:
 - **Category, not features.** Positioning as Quality Engineering (vs. code generation) is the moat. It's a smaller, higher-need market with a clearer buyer.
 - **Domain-agnostic by design.** A plugin interface means "write a plugin" is the answer to any new domain — tomorrow, any company's system becomes a target.
 - **Three audiences, one pipeline.** The same validation run produces a dev report, a QA dashboard, and a business summary. Competitors typically serve one.
-- **A learning loop (v2).** The Knowledge Agent turns every run into reusable patterns, known-issue databases, and a growing test-case library — compounding value over time.
+- **A learning loop (v2.0, M7).** The Knowledge Agent turns every run into reusable patterns, known-issue databases, and a growing test-case library — compounding value over time.
 
 <!-- TODO: Once you've run ECVT against a real system, add one measured result (e.g. "surfaced N edge cases a manual suite missed"). One real number here outweighs a page of claims. -->
 
@@ -115,14 +115,15 @@ Two things make the pipeline extensible:
 
 ## 8. Roadmap at a Glance
 
-| Version | Adds | Target |
+Status and dates live in [`ROADMAP.md`](../../ROADMAP.md); this is the shape.
+
+| Version | Milestone | Adds |
 |---|---|---|
-| v0.5 | Manager + Domain Intelligence | 19 Jul 2026 |
-| v0.8 | + Scenario Generator + Execution + REST plugin | 26 Jul 2026 |
-| v1.0 | + Evaluation + 2nd plugin (Solar or IKYS) | 2 Aug 2026 |
-| v1.1 | + Regression + Acceptance | Sep 2026 |
-| v1.2 | + Reporting | Oct 2026 |
-| v2.0 | + Knowledge (continuous learning) | Q1 2027 |
+| v0.3 – v1.0 | M0–M3 (shipped) | 5-agent chain + Manager, plugins (`rest_api`, `wallet`), ecvt-eval MCP, Dev + Business reports, n8n trigger, browser UI |
+| v1.1 | M4 | Reliability and measurement: a03 structured outputs, model matrix, baseline |
+| v1.2 | M5 | + Regression + Acceptance |
+| v1.3 | M6 | + Reporting, a real second domain (IKYS) |
+| v2.0 | M7 | + Knowledge (continuous learning) |
 
 ---
 

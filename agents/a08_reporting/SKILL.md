@@ -17,4 +17,4 @@ Produce three audience-specific reports: Dev (technical), QA (coverage matrix), 
 - TODO: define output JSON shape (see `tools.json`).
 
 ## Notes
-- Version: v1.2
+- Version: v1.3 (M6)

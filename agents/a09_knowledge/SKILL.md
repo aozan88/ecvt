@@ -17,4 +17,4 @@ After each run, capture lessons learned, recurring failure patterns, known issue
 - TODO: define output JSON shape (see `tools.json`).
 
 ## Notes
-- Version: v2
+- Version: v2.0 (M7)

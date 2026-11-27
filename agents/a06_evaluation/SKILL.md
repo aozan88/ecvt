@@ -14,7 +14,7 @@ How ECVT turns raw responses into verdicts. Procedure, not background.
 - "Which of these runs found real defects?"
 
 Do not use for: generating scenarios (03), running them (05), choosing what to
-run (01), comparing against history (07, v1.1).
+run (01), comparing against history (07, v1.2, M5).
 
 ## Inputs required
 
