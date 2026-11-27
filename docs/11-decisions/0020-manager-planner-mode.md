@@ -1,6 +1,6 @@
 # ADR 0020 — The Manager labels the request; code runs the pipeline
 
-**Status:** Proposed (M4-T3, 2026-11-27)
+**Status:** Accepted (Ozan, 2026-11-27)
 **Date:** 2026-11-27
 **Context:** ADR 0009 put the Manager on the Agent SDK: Sonnet classifies the
 request, delegates each stage to an adapter subagent, decides retries and writes
